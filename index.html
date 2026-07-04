@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>まるリンク・ポップ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="top-panel" aria-label="ゲーム情報">
+      <div class="stat">
+        <span class="stat-label">SCORE</span>
+        <strong id="score">0</strong>
+      </div>
+      <div class="stat timer-stat">
+        <span class="stat-label">TIME</span>
+        <strong id="time">60</strong>
+      </div>
+      <div class="stat">
+        <span class="stat-label">COMBO</span>
+        <strong id="combo">0</strong>
+      </div>
+    </section>
+
+    <section class="game-stage" aria-label="パズルエリア">
+      <canvas id="gameCanvas" width="720" height="720"></canvas>
+
+      <div id="titleOverlay" class="overlay active">
+        <div class="overlay-panel title-panel">
+          <p class="eyebrow">Original Round Link Puzzle</p>
+          <h1>まるリンク・ポップ</h1>
+          <p class="lead">同じまるキャラを3つ以上なぞって、光らせて消そう。</p>
+          <div class="title-actions">
+            <button id="motionButton" class="secondary-button" type="button">傾き操作を有効にする</button>
+            <span id="motionStatus" class="motion-status" aria-live="polite">傾き操作はオプションです</span>
+            <button id="startFromTitle" class="primary-button" type="button">スタート</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="resultOverlay" class="overlay">
+        <div class="overlay-panel result-panel">
+          <p class="eyebrow">Result</p>
+          <h2>ゲーム終了</h2>
+          <div class="final-score">
+            <span>FINAL SCORE</span>
+            <strong id="finalScore">0</strong>
+          </div>
+          <button id="restartFromResult" class="primary-button" type="button">もう一度遊ぶ</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="操作">
+      <button id="startButton" class="control-button" type="button">Start</button>
+      <button id="restartButton" class="control-button" type="button">Restart</button>
+      <button id="muteButton" class="control-button icon-button" type="button" aria-pressed="false">Sound On</button>
+      <label class="volume-control">
+        <span>Volume</span>
+        <input id="volumeSlider" type="range" min="0" max="100" value="55">
+      </label>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

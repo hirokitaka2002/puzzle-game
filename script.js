@@ -1,0 +1,1004 @@
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+  const scoreEl = document.getElementById("score");
+  const timeEl = document.getElementById("time");
+  const comboEl = document.getElementById("combo");
+  const finalScoreEl = document.getElementById("finalScore");
+  const titleOverlay = document.getElementById("titleOverlay");
+  const resultOverlay = document.getElementById("resultOverlay");
+  const startButton = document.getElementById("startButton");
+  const restartButton = document.getElementById("restartButton");
+  const startFromTitle = document.getElementById("startFromTitle");
+  const restartFromResult = document.getElementById("restartFromResult");
+  const motionButton = document.getElementById("motionButton");
+  const motionStatus = document.getElementById("motionStatus");
+  const muteButton = document.getElementById("muteButton");
+  const volumeSlider = document.getElementById("volumeSlider");
+  const timerStat = document.querySelector(".timer-stat");
+
+  const W = 720;
+  const H = 720;
+  const PIECE_COUNT = 48;
+  const RADIUS = 36;
+  const PICK_RADIUS = RADIUS * 1.18;
+  const LINK_DISTANCE = RADIUS * 3.05;
+  const GRAVITY = 560;
+  const TYPES = [
+    { name: "Piko", main: "#ff707e", shade: "#c83465", glow: "#ffd4d9", cheek: "#ffd0cc", feature: "ears" },
+    { name: "Mofu", main: "#5bd7ff", shade: "#1479c9", glow: "#d9fbff", cheek: "#ffb8d4", feature: "horn" },
+    { name: "Nico", main: "#ffd85c", shade: "#d99523", glow: "#fff7b4", cheek: "#ff9a73", feature: "cap" },
+    { name: "Luma", main: "#82e676", shade: "#2c9d65", glow: "#e1ffd1", cheek: "#ffe1a8", feature: "sprout" },
+    { name: "Bibi", main: "#b58cff", shade: "#6849c9", glow: "#efe0ff", cheek: "#ffb3f0", feature: "dots" }
+  ];
+
+  const state = {
+    pieces: [],
+    selected: [],
+    pointer: { x: 0, y: 0, prevX: 0, prevY: 0, active: false },
+    activeTouchId: null,
+    lastTouchTime: -Infinity,
+    tilt: {
+      enabled: false,
+      x: 0,
+      y: 0,
+      targetX: 0,
+      targetY: 0,
+      neutralBeta: null,
+      neutralGamma: null
+    },
+    running: false,
+    gameOver: false,
+    score: 0,
+    combo: 0,
+    comboCooldown: 0,
+    timeLeft: 60,
+    lastTime: 0,
+    nextId: 1,
+    particles: [],
+    floatTexts: [],
+    flashes: [],
+    refillQueue: [],
+    warningBeepAt: 0,
+    screenBurst: 0
+  };
+
+  class AudioEngine {
+    constructor() {
+      this.ctx = null;
+      this.master = null;
+      this.music = null;
+      this.volume = Number(volumeSlider.value) / 100;
+      this.muted = false;
+      this.interval = null;
+      this.step = 0;
+      this.nextTime = 0;
+      this.started = false;
+      this.chords = [
+        [261.63, 329.63, 392.0],
+        [349.23, 440.0, 523.25],
+        [392.0, 493.88, 587.33],
+        [329.63, 392.0, 493.88]
+      ];
+      this.melody = [659.25, 0, 587.33, 523.25, 659.25, 783.99, 698.46, 0, 587.33, 523.25, 493.88, 587.33, 659.25, 0, 783.99, 880.0];
+      this.bass = [130.81, 174.61, 196.0, 164.81];
+    }
+
+    init() {
+      if (this.ctx) return;
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      this.ctx = new AudioContext();
+      this.master = this.ctx.createGain();
+      this.music = this.ctx.createGain();
+      this.master.gain.value = this.muted ? 0 : this.volume;
+      this.music.gain.value = 0.22;
+      this.music.connect(this.master);
+      this.master.connect(this.ctx.destination);
+    }
+
+    async resume() {
+      this.init();
+      if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
+    }
+
+    setVolume(value) {
+      this.volume = value;
+      if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.03);
+    }
+
+    setMuted(muted) {
+      this.muted = muted;
+      if (this.master) this.master.gain.setTargetAtTime(muted ? 0 : this.volume, this.ctx.currentTime, 0.03);
+    }
+
+    startMusic() {
+      if (!this.ctx || this.started) return;
+      this.started = true;
+      this.step = 0;
+      this.nextTime = this.ctx.currentTime + 0.04;
+      this.interval = window.setInterval(() => this.scheduleMusic(), 90);
+      this.scheduleMusic();
+    }
+
+    stopMusic() {
+      this.started = false;
+      if (this.interval) window.clearInterval(this.interval);
+      this.interval = null;
+    }
+
+    scheduleMusic() {
+      if (!this.ctx || !this.started) return;
+      const beat = 0.24;
+      while (this.nextTime < this.ctx.currentTime + 0.45) {
+        const chordIndex = Math.floor(this.step / 8) % this.chords.length;
+        const chord = this.chords[chordIndex];
+        const bassNote = this.bass[chordIndex] / (this.step % 8 < 4 ? 1 : 0.5);
+        if (this.step % 8 === 0) chord.forEach((freq, i) => this.note(freq, this.nextTime + i * 0.012, 0.32, "triangle", 0.045, this.music));
+        if (this.step % 2 === 0) this.note(bassNote, this.nextTime, 0.18, "sine", 0.07, this.music);
+        const lead = this.melody[this.step % this.melody.length];
+        if (lead) this.note(lead, this.nextTime, 0.16, "square", 0.035, this.music);
+        this.step += 1;
+        this.nextTime += beat;
+      }
+    }
+
+    note(freq, start, duration, type, gainValue, output = this.master, bend = 1) {
+      if (!this.ctx || !output) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, start);
+      if (bend !== 1) osc.frequency.exponentialRampToValueAtTime(Math.max(30, freq * bend), start + duration);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      osc.connect(gain);
+      gain.connect(output);
+      osc.start(start);
+      osc.stop(start + duration + 0.02);
+    }
+
+    noise(start, duration, gainValue, filterFreq) {
+      if (!this.ctx || !this.master) return;
+      const length = Math.max(1, Math.floor(this.ctx.sampleRate * duration));
+      const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
+      const src = this.ctx.createBufferSource();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+      filter.type = "bandpass";
+      filter.frequency.value = filterFreq;
+      filter.Q.value = 6;
+      gain.gain.setValueAtTime(gainValue, start);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      src.buffer = buffer;
+      src.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.master);
+      src.start(start);
+    }
+
+    sfx(name, amount = 1) {
+      if (!this.ctx || this.muted) return;
+      const t = this.ctx.currentTime;
+      if (name === "select") this.note(620 + amount * 18, t, 0.07, "sine", 0.09, this.master, 1.18);
+      if (name === "link") this.note(720 + amount * 28, t, 0.08, "triangle", 0.08, this.master, 1.22);
+      if (name === "pop") {
+        this.noise(t, 0.2, 0.12, 1500);
+        [523.25, 659.25, 783.99].forEach((f, i) => this.note(f * (1 + amount * 0.015), t + i * 0.035, 0.18, "triangle", 0.09, this.master, 1.3));
+      }
+      if (name === "combo") [659.25, 783.99, 987.77, 1174.66].forEach((f, i) => this.note(f, t + i * 0.045, 0.16, "square", 0.075, this.master, 1.12));
+      if (name === "warn") this.note(880, t, 0.12, "sawtooth", 0.07, this.master, 0.78);
+      if (name === "end") [523.25, 493.88, 392.0, 261.63].forEach((f, i) => this.note(f, t + i * 0.12, 0.28, "triangle", 0.11, this.master, 0.92));
+    }
+  }
+
+  const audio = new AudioEngine();
+
+  function rand(max) {
+    return Math.floor(Math.random() * max);
+  }
+
+  function makePiece(type = rand(TYPES.length), delay = 0, initialY = null) {
+    const radius = RADIUS * (0.92 + Math.random() * 0.13);
+    return {
+      id: state.nextId++,
+      type,
+      x: radius + 12 + Math.random() * (W - radius * 2 - 24),
+      y: initialY ?? (-radius - 30 - Math.random() * 180),
+      vx: (Math.random() - 0.5) * 42,
+      vy: 35 + Math.random() * 70,
+      radius,
+      angle: (Math.random() - 0.5) * 0.16,
+      angularVelocity: (Math.random() - 0.5) * 0.42,
+      driftPhase: Math.random() * Math.PI * 2,
+      driftSpeed: 0.75 + Math.random() * 0.75,
+      spawnDelay: delay,
+      scale: 1,
+      pop: 0,
+      vanish: false,
+      vanishTime: 0,
+      wobble: Math.random() * Math.PI * 2,
+      born: performance.now()
+    };
+  }
+
+  function resetBoard() {
+    state.pieces = [];
+    state.selected = [];
+    state.particles = [];
+    state.floatTexts = [];
+    state.flashes = [];
+    state.refillQueue = [];
+    state.nextId = 1;
+    for (let i = 0; i < PIECE_COUNT; i += 1) {
+      const delay = i * 0.035 + Math.random() * 0.18;
+      state.pieces.push(makePiece(rand(TYPES.length), delay, -RADIUS - 40 - Math.random() * 260));
+    }
+  }
+
+  function startGame() {
+    audio.resume().then(() => audio.startMusic());
+    resetBoard();
+    state.running = true;
+    state.gameOver = false;
+    state.score = 0;
+    state.combo = 0;
+    state.comboCooldown = 0;
+    state.timeLeft = 60;
+    state.warningBeepAt = 0;
+    state.screenBurst = 0;
+    scoreEl.textContent = "0";
+    comboEl.textContent = "0";
+    timeEl.textContent = "60";
+    timerStat.classList.remove("warning");
+    titleOverlay.classList.remove("active");
+    resultOverlay.classList.remove("active");
+    startButton.disabled = true;
+  }
+
+  function endGame() {
+    if (!state.running) return;
+    state.running = false;
+    state.gameOver = true;
+    state.selected = [];
+    state.screenBurst = 1;
+    finalScoreEl.textContent = String(state.score);
+    resultOverlay.classList.add("active");
+    startButton.disabled = false;
+    timerStat.classList.remove("warning");
+    audio.sfx("end");
+    for (let i = 0; i < 130; i += 1) {
+      state.particles.push({
+        x: W / 2,
+        y: H / 2,
+        vx: Math.cos(i * 2.399) * (1.4 + Math.random() * 5.5),
+        vy: Math.sin(i * 2.399) * (1.4 + Math.random() * 5.5),
+        life: 1,
+        size: 3 + Math.random() * 6,
+        color: i % 2 ? "#fff178" : "#83f4ff"
+      });
+    }
+  }
+
+  function pieceAtPoint(x, y) {
+    let closest = null;
+    let closestDistance = Infinity;
+    state.pieces.forEach((piece) => {
+      if (!isSelectable(piece)) return;
+      const distance = Math.hypot(x - piece.x, y - piece.y);
+      if (distance <= piece.radius * 1.18 && distance < closestDistance) {
+        closest = piece;
+        closestDistance = distance;
+      }
+    });
+    return closest;
+  }
+
+  function isSelectable(piece) {
+    return !piece.vanish && piece.spawnDelay <= 0 && piece.y > -piece.radius * 0.25;
+  }
+
+  function distanceToSegment(piece, from, to) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return { distance: Math.hypot(piece.x - from.x, piece.y - from.y), t: 0 };
+    const t = Math.max(0, Math.min(1, ((piece.x - from.x) * dx + (piece.y - from.y) * dy) / lengthSquared));
+    const x = from.x + dx * t;
+    const y = from.y + dy * t;
+    return { distance: Math.hypot(piece.x - x, piece.y - y), t };
+  }
+
+  function trySelectAlongSegment(from, to) {
+    const candidates = state.pieces
+      .filter(isSelectable)
+      .map((piece) => ({ piece, ...distanceToSegment(piece, from, to) }))
+      .filter((item) => item.distance <= Math.max(PICK_RADIUS, item.piece.radius * 1.18))
+      .sort((a, b) => a.t - b.t || a.distance - b.distance);
+
+    const previous = state.selected[state.selected.length - 2];
+    if (previous && candidates.some((candidate) => candidate.piece.id === previous.id)) {
+      trySelect(previous);
+      return;
+    }
+
+    for (const candidate of candidates) trySelect(candidate.piece);
+  }
+
+  function trySelect(piece) {
+    if (!state.running || !piece) return;
+    const selected = state.selected;
+    if (!selected.length) {
+      selected.push(piece);
+      piece.pop = 1;
+      audio.sfx("select", 1);
+      return;
+    }
+    const last = selected[selected.length - 1];
+    const prev = selected[selected.length - 2];
+    if (prev && piece.id === prev.id) {
+      const removed = selected.pop();
+      removed.pop = 0.35;
+      audio.sfx("select", selected.length);
+      return;
+    }
+    const distanceFromLast = Math.hypot(piece.x - last.x, piece.y - last.y);
+    if (piece.type !== selected[0].type || piece.id === last.id || selected.some((p) => p.id === piece.id) || distanceFromLast > LINK_DISTANCE) return;
+    selected.push(piece);
+    piece.pop = 1;
+    audio.sfx("link", selected.length);
+    if (selected.length >= 7) addLongChainAura(piece.x, piece.y, selected.length);
+  }
+
+  function addLongChainAura(x, y, length) {
+    state.flashes.push({ x, y, life: 1, text: `${length} LINK!`, big: length >= 10 });
+    for (let i = 0; i < 8; i += 1) {
+      state.particles.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5,
+        life: 0.6,
+        size: 2 + Math.random() * 4,
+        color: "#fff587"
+      });
+    }
+  }
+
+  function releaseSelection() {
+    if (!state.selected.length) return;
+    if (state.selected.length >= 3) clearSelection();
+    else state.selected.forEach((p) => { p.pop = 0.25; });
+    state.selected = [];
+  }
+
+  function clearSelection() {
+    const chain = [...state.selected];
+    const length = chain.length;
+    state.combo += 1;
+    state.comboCooldown = 3.2;
+    const base = length * length * 35;
+    const comboBonus = Math.floor(base * (1 + (state.combo - 1) * 0.32));
+    state.score += comboBonus;
+    scoreEl.textContent = String(state.score);
+    comboEl.textContent = String(state.combo);
+    audio.sfx("pop", length);
+    if (state.combo >= 2) audio.sfx("combo", state.combo);
+
+    const cx = chain.reduce((sum, p) => sum + p.x, 0) / length;
+    const cy = chain.reduce((sum, p) => sum + p.y, 0) / length;
+    state.floatTexts.push({ x: cx, y: cy, text: `+${comboBonus}`, life: 1, color: "#fff178", size: Math.min(44, 22 + length * 2) });
+    if (state.combo >= 2) state.flashes.push({ x: W / 2, y: H * 0.32, life: 1, text: `${state.combo} COMBO`, big: true });
+
+    chain.forEach((piece) => {
+      piece.vanish = true;
+      piece.vanishTime = 0.19;
+      piece.pop = 1.8;
+      piece.vx += (piece.x - cx) * 1.8;
+      piece.vy += (piece.y - cy) * 1.8 - 80;
+      for (let i = 0; i < 15; i += 1) {
+        state.particles.push({
+          x: piece.x + (Math.random() - 0.5) * 28,
+          y: piece.y + (Math.random() - 0.5) * 28,
+          vx: (Math.random() - 0.5) * 7,
+          vy: (Math.random() - 0.5) * 7 - 1.5,
+          life: 0.75 + Math.random() * 0.35,
+          size: 2 + Math.random() * 5,
+          color: TYPES[piece.type].glow
+        });
+      }
+    });
+
+    chain.forEach((piece, index) => {
+      state.refillQueue.push({
+        delay: 0.18 + index * 0.105 + Math.random() * 0.06,
+        type: rand(TYPES.length)
+      });
+    });
+  }
+
+  function updateRefill(dt) {
+    state.refillQueue.forEach((item) => { item.delay -= dt; });
+    const ready = state.refillQueue.filter((item) => item.delay <= 0);
+    state.refillQueue = state.refillQueue.filter((item) => item.delay > 0);
+    ready.forEach((item) => state.pieces.push(makePiece(item.type, 0)));
+  }
+
+  function touchForEvent(event) {
+    if (!event.changedTouches && !event.touches) return event;
+    const touches = [...(event.touches || []), ...(event.changedTouches || [])];
+    if (state.activeTouchId === null) return touches[0] || null;
+    return touches.find((touch) => touch.identifier === state.activeTouchId) || null;
+  }
+
+  function pointerPosition(event) {
+    const rect = canvas.getBoundingClientRect();
+    const point = touchForEvent(event);
+    if (!point) return null;
+    return {
+      x: (point.clientX - rect.left) * (W / rect.width),
+      y: (point.clientY - rect.top) * (H / rect.height)
+    };
+  }
+
+  function onPointerDown(event) {
+    const isTouch = event.type.startsWith("touch");
+    if (!isTouch && performance.now() - state.lastTouchTime < 800) return;
+    if (!state.running) return;
+    if (isTouch) {
+      if (state.pointer.active) return;
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      state.activeTouchId = touch.identifier;
+      state.lastTouchTime = performance.now();
+    }
+    event.preventDefault();
+    const pos = pointerPosition(event);
+    if (!pos) return;
+    state.pointer = { ...pos, prevX: pos.x, prevY: pos.y, active: true };
+    trySelect(pieceAtPoint(pos.x, pos.y));
+  }
+
+  function onPointerMove(event) {
+    if (!state.pointer.active) return;
+    event.preventDefault();
+    const pos = pointerPosition(event);
+    if (!pos) return;
+    if (event.type.startsWith("touch")) state.lastTouchTime = performance.now();
+    const from = { x: state.pointer.x, y: state.pointer.y };
+    const to = { x: pos.x, y: pos.y };
+    state.pointer.prevX = state.pointer.x;
+    state.pointer.prevY = state.pointer.y;
+    state.pointer.x = pos.x;
+    state.pointer.y = pos.y;
+    trySelectAlongSegment(from, to);
+  }
+
+  function onPointerUp(event) {
+    if (!state.pointer.active) return;
+    if (event.type.startsWith("touch") && ![...(event.changedTouches || [])].some((touch) => touch.identifier === state.activeTouchId)) return;
+    event.preventDefault();
+    state.pointer.active = false;
+    state.activeTouchId = null;
+    if (event.type.startsWith("touch")) state.lastTouchTime = performance.now();
+    releaseSelection();
+  }
+
+  function onPointerCancel(event) {
+    if (!state.pointer.active) return;
+    if (![...(event.changedTouches || [])].some((touch) => touch.identifier === state.activeTouchId)) return;
+    event.preventDefault();
+    state.selected.forEach((piece) => { piece.pop = 0.2; });
+    state.selected = [];
+    state.pointer.active = false;
+    state.activeTouchId = null;
+    state.lastTouchTime = performance.now();
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function handleOrientation(event) {
+    if (!state.tilt.enabled || !Number.isFinite(event.beta) || !Number.isFinite(event.gamma)) return;
+    if (state.tilt.neutralBeta === null || state.tilt.neutralGamma === null) {
+      state.tilt.neutralBeta = event.beta;
+      state.tilt.neutralGamma = event.gamma;
+    }
+
+    state.tilt.targetX = clamp((event.gamma - state.tilt.neutralGamma) / 34, -1, 1);
+    state.tilt.targetY = clamp((event.beta - state.tilt.neutralBeta) / 42, -1, 1);
+  }
+
+  async function enableTiltControl() {
+    motionButton.disabled = true;
+    motionStatus.textContent = "傾きセンサーを確認中…";
+
+    try {
+      const OrientationEvent = window.DeviceOrientationEvent;
+      if (!OrientationEvent) {
+        motionStatus.textContent = "この端末では傾き操作を利用できません";
+        motionButton.textContent = "傾き操作は利用できません";
+        return;
+      }
+
+      if (typeof OrientationEvent.requestPermission === "function") {
+        const permission = await OrientationEvent.requestPermission();
+        if (permission !== "granted") {
+          motionStatus.textContent = "許可されませんでした。指操作で遊べます";
+          motionButton.textContent = "傾き操作を有効にする";
+          motionButton.disabled = false;
+          return;
+        }
+      }
+
+      state.tilt.enabled = true;
+      state.tilt.neutralBeta = null;
+      state.tilt.neutralGamma = null;
+      window.removeEventListener("deviceorientation", handleOrientation);
+      window.addEventListener("deviceorientation", handleOrientation, { passive: true });
+      motionButton.textContent = "傾き操作：オン";
+      motionStatus.textContent = "現在の持ち方を基準に設定しました";
+    } catch (error) {
+      state.tilt.enabled = false;
+      motionButton.disabled = false;
+      motionButton.textContent = "傾き操作を有効にする";
+      motionStatus.textContent = "傾き操作を開始できません。指操作で遊べます";
+    }
+  }
+
+  function resolveCollisions() {
+    const pieces = state.pieces.filter((piece) => isSelectable(piece));
+    for (let i = 0; i < pieces.length; i += 1) {
+      for (let j = i + 1; j < pieces.length; j += 1) {
+        const a = pieces[i];
+        const b = pieces[j];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let distance = Math.hypot(dx, dy);
+        const minimum = (a.radius + b.radius) * 0.91;
+        if (distance >= minimum) continue;
+        if (distance < 0.01) {
+          dx = Math.random() - 0.5;
+          dy = -1;
+          distance = Math.hypot(dx, dy);
+        }
+
+        const nx = dx / distance;
+        const ny = dy / distance;
+        const overlap = minimum - distance;
+        const correction = overlap * 0.52;
+        a.x -= nx * correction;
+        a.y -= ny * correction;
+        b.x += nx * correction;
+        b.y += ny * correction;
+
+        const relativeVelocity = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (relativeVelocity < 0) {
+          const impulse = -relativeVelocity * 0.38;
+          a.vx -= nx * impulse;
+          a.vy -= ny * impulse;
+          b.vx += nx * impulse;
+          b.vy += ny * impulse;
+        }
+      }
+    }
+  }
+
+  function updatePieces(dt) {
+    const now = performance.now() * 0.001;
+    const tiltEase = Math.min(1, dt * 5.5);
+    state.tilt.x += (state.tilt.targetX - state.tilt.x) * tiltEase;
+    state.tilt.y += (state.tilt.targetY - state.tilt.y) * tiltEase;
+    state.pieces.forEach((piece) => {
+      if (piece.spawnDelay > 0) {
+        piece.spawnDelay -= dt;
+        return;
+      }
+
+      piece.wobble += dt * (2.7 + piece.driftSpeed);
+      piece.angle += piece.angularVelocity * dt;
+      piece.pop *= Math.pow(0.018, dt);
+
+      if (piece.vanish) {
+        piece.vanishTime -= dt;
+        piece.x += piece.vx * dt;
+        piece.y += piece.vy * dt;
+        piece.vy += GRAVITY * 0.18 * dt;
+        piece.angle += dt * 4.5;
+        return;
+      }
+
+      const selected = state.selected.some((item) => item.id === piece.id);
+      const tiltStrength = selected ? 0.24 : 1;
+      piece.vy += GRAVITY * dt;
+      piece.vx += state.tilt.x * 105 * tiltStrength * dt;
+      piece.vy += state.tilt.y * 72 * tiltStrength * dt;
+      piece.vx += Math.sin(now * piece.driftSpeed + piece.driftPhase) * 5.5 * dt;
+      piece.vx *= Math.pow(0.76, dt);
+      piece.angularVelocity *= Math.pow(0.7, dt);
+      piece.x += piece.vx * dt;
+      piece.y += piece.vy * dt;
+
+      const left = piece.radius + 7;
+      const right = W - piece.radius - 7;
+      if (piece.x < left) {
+        piece.x = left;
+        piece.vx = Math.abs(piece.vx) * 0.42;
+        piece.angularVelocity += 0.12;
+      } else if (piece.x > right) {
+        piece.x = right;
+        piece.vx = -Math.abs(piece.vx) * 0.42;
+        piece.angularVelocity -= 0.12;
+      }
+
+      const floor = H - piece.radius - 8;
+      if (piece.y > floor) {
+        piece.y = floor;
+        if (piece.vy > 35) piece.vy *= -0.2;
+        else piece.vy = 0;
+        piece.vx *= 0.91;
+        piece.angularVelocity += piece.vx * 0.0008;
+      }
+    });
+
+    resolveCollisions();
+    resolveCollisions();
+    state.pieces = state.pieces.filter((piece) => !piece.vanish || piece.vanishTime > 0);
+  }
+
+  function update(dt) {
+    if (state.running) {
+      updateRefill(dt);
+      state.timeLeft = Math.max(0, state.timeLeft - dt);
+      const displayTime = Math.ceil(state.timeLeft);
+      timeEl.textContent = String(displayTime);
+      if (displayTime <= 10) {
+        timerStat.classList.add("warning");
+        if (displayTime > 0 && displayTime !== state.warningBeepAt) {
+          state.warningBeepAt = displayTime;
+          audio.sfx("warn");
+        }
+      }
+      if (state.timeLeft <= 0) endGame();
+      if (!state.selected.length && state.combo > 0) {
+        state.comboCooldown = Math.max(0, state.comboCooldown - dt);
+        if (state.comboCooldown <= 0) {
+          state.combo = 0;
+          comboEl.textContent = "0";
+        }
+      }
+    }
+
+    updatePieces(dt);
+
+    state.particles = state.particles.filter((p) => {
+      p.life -= dt * 1.55;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.08;
+      return p.life > 0;
+    });
+    state.floatTexts = state.floatTexts.filter((t) => {
+      t.life -= dt * 0.85;
+      t.y -= dt * 56;
+      return t.life > 0;
+    });
+    state.flashes = state.flashes.filter((f) => {
+      f.life -= dt * 1.08;
+      return f.life > 0;
+    });
+    state.screenBurst = Math.max(0, state.screenBurst - dt * 0.45);
+  }
+
+  function drawBackground() {
+    ctx.clearRect(0, 0, W, H);
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#3247b8");
+    g.addColorStop(0.46, "#22a9c7");
+    g.addColorStop(1, "#ffb053");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.globalAlpha = 0.13;
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < 22; i += 1) {
+      const x = (i * 137 + 43) % W;
+      const y = (i * 83 + 72) % H;
+      const r = 3 + (i % 5) * 2;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawPiece(piece) {
+    if (piece.spawnDelay > 0) return;
+    const selected = state.selected.some((p) => p.id === piece.id);
+    const info = TYPES[piece.type];
+    const time = performance.now() * 0.001;
+    const bounce = Math.sin(piece.wobble) * 2.2;
+    const sway = Math.sin(time * piece.driftSpeed + piece.driftPhase) * 1.8;
+    const selectedPulse = selected ? 0.1 + Math.sin(time * 9 + piece.id) * 0.025 : 0;
+    const vanishProgress = piece.vanish ? 1 - Math.max(0, piece.vanishTime) / 0.19 : 0;
+    const scale = 1 + piece.pop * 0.14 + selectedPulse + vanishProgress * 0.28;
+    const x = piece.x + sway + (selected ? Math.sin(time * 19 + piece.id) * 1.5 : 0);
+    const y = piece.y + bounce;
+    const r = piece.radius * scale;
+    const pieceAlpha = piece.vanish ? Math.max(0, piece.vanishTime / 0.19) : 1;
+
+    ctx.save();
+    ctx.globalAlpha = pieceAlpha;
+    ctx.translate(x, y);
+    ctx.rotate(piece.angle + Math.sin(piece.wobble * 0.55) * 0.025);
+    if (selected) {
+      ctx.shadowColor = info.glow;
+      ctx.shadowBlur = 25;
+    }
+    ctx.fillStyle = "rgba(23, 27, 76, 0.25)";
+    ctx.beginPath();
+    ctx.ellipse(4, r * 0.78, r * 0.82, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawFeatureBack(info, r);
+
+    const body = ctx.createRadialGradient(-r * 0.3, -r * 0.42, r * 0.08, 0, 0, r);
+    body.addColorStop(0, "#ffffff");
+    body.addColorStop(0.12, info.glow);
+    body.addColorStop(0.36, info.main);
+    body.addColorStop(1, info.shade);
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.42)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.globalAlpha = pieceAlpha * 0.56;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-r * 0.32, -r * 0.42, r * 0.22, r * 0.12, -0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = pieceAlpha;
+
+    drawFace(info, r, piece.type);
+    drawFeatureFront(info, r);
+
+    if (selected) {
+      ctx.strokeStyle = "#fff9a8";
+      ctx.lineWidth = 5;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 5 + Math.sin(performance.now() / 120) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawFeatureBack(info, r) {
+    ctx.fillStyle = info.shade;
+    if (info.feature === "ears") {
+      [-0.55, 0.55].forEach((side) => {
+        ctx.beginPath();
+        ctx.ellipse(side * r * 0.72, -r * 0.72, r * 0.23, r * 0.34, side * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    if (info.feature === "horn") {
+      ctx.fillStyle = "#fff2aa";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.16, -r * 0.82);
+      ctx.quadraticCurveTo(0, -r * 1.34, r * 0.17, -r * 0.82);
+      ctx.closePath();
+      ctx.fill();
+    }
+    if (info.feature === "sprout") {
+      ctx.fillStyle = "#4abc5b";
+      ctx.beginPath();
+      ctx.ellipse(-r * 0.15, -r * 1.02, r * 0.22, r * 0.12, -0.7, 0, Math.PI * 2);
+      ctx.ellipse(r * 0.16, -r * 1.02, r * 0.22, r * 0.12, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawFeatureFront(info, r) {
+    if (info.feature === "cap") {
+      ctx.fillStyle = "#5d48b7";
+      ctx.beginPath();
+      ctx.ellipse(0, -r * 0.74, r * 0.54, r * 0.16, 0, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#fff178";
+      ctx.fillRect(-r * 0.1, -r * 0.95, r * 0.2, r * 0.16);
+    }
+    if (info.feature === "dots") {
+      ctx.fillStyle = "rgba(255,255,255,0.38)";
+      [[-0.48, -0.28], [0.46, -0.2], [-0.3, 0.42], [0.28, 0.48]].forEach(([x, y]) => {
+        ctx.beginPath();
+        ctx.arc(x * r, y * r, r * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }
+
+  function drawFace(info, r, type) {
+    ctx.fillStyle = "rgba(45,35,72,0.86)";
+    const eyeY = -r * 0.1;
+    const eyeX = r * 0.33;
+    if (type === 2) {
+      ctx.lineWidth = r * 0.07;
+      ctx.strokeStyle = "rgba(45,35,72,0.86)";
+      [-eyeX, eyeX].forEach((x) => {
+        ctx.beginPath();
+        ctx.arc(x, eyeY, r * 0.12, 0.15, Math.PI - 0.15);
+        ctx.stroke();
+      });
+    } else {
+      [-eyeX, eyeX].forEach((x) => {
+        ctx.beginPath();
+        ctx.ellipse(x, eyeY, r * 0.1, r * 0.15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.88)";
+        ctx.beginPath();
+        ctx.arc(x - r * 0.025, eyeY - r * 0.05, r * 0.028, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(45,35,72,0.86)";
+      });
+    }
+    ctx.fillStyle = info.cheek;
+    [-0.48, 0.48].forEach((x) => {
+      ctx.beginPath();
+      ctx.ellipse(x * r, r * 0.2, r * 0.15, r * 0.08, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.strokeStyle = "rgba(45,35,72,0.78)";
+    ctx.lineWidth = r * 0.055;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    if (type === 1) ctx.arc(0, r * 0.16, r * 0.18, 0.1, Math.PI - 0.1);
+    else if (type === 4) ctx.moveTo(-r * 0.1, r * 0.18), ctx.lineTo(0, r * 0.28), ctx.lineTo(r * 0.1, r * 0.18);
+    else ctx.arc(0, r * 0.16, r * 0.2, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+  }
+
+  function drawConnections() {
+    if (!state.selected.length) return;
+    const points = state.selected.map((p) => ({ x: p.x, y: p.y }));
+    if (state.pointer.active) points.push({ x: state.pointer.x, y: state.pointer.y });
+    ctx.save();
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.shadowColor = "#fff178";
+    ctx.shadowBlur = Math.min(42, 14 + state.selected.length * 3.2);
+    ctx.strokeStyle = `rgba(255, 245, 120, ${Math.min(0.82, 0.34 + state.selected.length * 0.045)})`;
+    ctx.lineWidth = Math.min(25, 14 + state.selected.length * 0.75);
+    drawPath(points);
+    ctx.stroke();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = Math.min(8, 4.5 + state.selected.length * 0.2);
+    drawPath(points);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPath(points) {
+    ctx.beginPath();
+    if (!points.length) return;
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const midpointX = (points[i].x + points[i + 1].x) * 0.5;
+      const midpointY = (points[i].y + points[i + 1].y) * 0.5;
+      ctx.quadraticCurveTo(points[i].x, points[i].y, midpointX, midpointY);
+    }
+    if (points.length > 1) {
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+    }
+  }
+
+  function drawParticles() {
+    state.particles.forEach((p) => {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * Math.max(0.25, p.life), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function drawTexts() {
+    state.floatTexts.forEach((t) => {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, t.life * 1.6);
+      ctx.fillStyle = t.color;
+      ctx.strokeStyle = "rgba(55,36,90,0.82)";
+      ctx.lineWidth = 6;
+      ctx.font = `900 ${t.size}px ui-rounded, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.strokeText(t.text, t.x, t.y);
+      ctx.fillText(t.text, t.x, t.y);
+      ctx.restore();
+    });
+    state.flashes.forEach((f) => {
+      ctx.save();
+      const size = f.big ? 58 : 34;
+      ctx.globalAlpha = Math.min(1, f.life * 1.35);
+      ctx.translate(f.x, f.y);
+      ctx.scale(1 + (1 - f.life) * 0.38, 1 + (1 - f.life) * 0.38);
+      ctx.fillStyle = "#fff178";
+      ctx.strokeStyle = "rgba(91,44,131,0.82)";
+      ctx.lineWidth = 8;
+      ctx.font = `900 ${size}px ui-rounded, system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "#fff178";
+      ctx.shadowBlur = 24;
+      ctx.strokeText(f.text, 0, 0);
+      ctx.fillText(f.text, 0, 0);
+      ctx.restore();
+    });
+  }
+
+  function drawScreenBurst() {
+    if (state.screenBurst <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = state.screenBurst * 0.5;
+    const g = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.8);
+    g.addColorStop(0, "#fff7a8");
+    g.addColorStop(0.32, "rgba(255,122,188,0.52)");
+    g.addColorStop(1, "rgba(44,31,116,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  function render(time) {
+    const dt = Math.min(0.033, (time - (state.lastTime || time)) / 1000);
+    state.lastTime = time;
+    update(dt);
+    drawBackground();
+    drawConnections();
+    state.pieces.forEach(drawPiece);
+    drawParticles();
+    drawTexts();
+    drawScreenBurst();
+    requestAnimationFrame(render);
+  }
+
+  canvas.addEventListener("mousedown", onPointerDown);
+  canvas.addEventListener("mousemove", onPointerMove);
+  window.addEventListener("mouseup", onPointerUp);
+  canvas.addEventListener("touchstart", onPointerDown, { passive: false });
+  canvas.addEventListener("touchmove", onPointerMove, { passive: false });
+  window.addEventListener("touchend", onPointerUp, { passive: false });
+  window.addEventListener("touchcancel", onPointerCancel, { passive: false });
+
+  startButton.addEventListener("click", startGame);
+  restartButton.addEventListener("click", startGame);
+  startFromTitle.addEventListener("click", startGame);
+  restartFromResult.addEventListener("click", startGame);
+  motionButton.addEventListener("click", enableTiltControl);
+  muteButton.addEventListener("click", () => {
+    audio.setMuted(!audio.muted);
+    muteButton.textContent = audio.muted ? "Muted" : "Sound On";
+    muteButton.setAttribute("aria-pressed", String(audio.muted));
+  });
+  volumeSlider.addEventListener("input", () => audio.setVolume(Number(volumeSlider.value) / 100));
+
+  resetBoard();
+  startButton.disabled = false;
+  requestAnimationFrame(render);
+})();
