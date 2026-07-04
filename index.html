@@ -24,7 +24,7 @@
     </section>
 
     <section class="game-stage" aria-label="パズルエリア">
-      <canvas id="gameCanvas" width="720" height="720"></canvas>
+      <canvas id="gameCanvas" width="360" height="360"></canvas>
 
       <div id="titleOverlay" class="overlay active">
         <div class="overlay-panel title-panel">
@@ -60,6 +60,14 @@
         <span>Volume</span>
         <input id="volumeSlider" type="range" min="0" max="100" value="55">
       </label>
+      <div class="sensitivity-control" role="group" aria-label="傾き感度">
+        <span>傾き感度</span>
+        <div class="segmented-control">
+          <button type="button" data-sensitivity="low" aria-pressed="false">低</button>
+          <button type="button" data-sensitivity="medium" aria-pressed="true">中</button>
+          <button type="button" data-sensitivity="high" aria-pressed="false">高</button>
+        </div>
+      </div>
     </section>
   </main>
 

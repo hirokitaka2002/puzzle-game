@@ -15,17 +15,19 @@
   const restartFromResult = document.getElementById("restartFromResult");
   const motionButton = document.getElementById("motionButton");
   const motionStatus = document.getElementById("motionStatus");
+  const sensitivityButtons = [...document.querySelectorAll("[data-sensitivity]")];
   const muteButton = document.getElementById("muteButton");
   const volumeSlider = document.getElementById("volumeSlider");
   const timerStat = document.querySelector(".timer-stat");
 
-  const W = 720;
-  const H = 720;
-  const PIECE_COUNT = 48;
-  const RADIUS = 36;
-  const PICK_RADIUS = RADIUS * 1.18;
-  const LINK_DISTANCE = RADIUS * 3.05;
-  const GRAVITY = 560;
+  const W = 360;
+  const H = 360;
+  const PIECE_COUNT = 18;
+  const RADIUS = 34;
+  const PICK_RADIUS = RADIUS * 1.24;
+  const LINK_DISTANCE = RADIUS * 3.7;
+  const GRAVITY = 360;
+  const TILT_MULTIPLIERS = { low: 0.62, medium: 1, high: 1.65 };
   const TYPES = [
     { name: "Piko", main: "#ff707e", shade: "#c83465", glow: "#ffd4d9", cheek: "#ffd0cc", feature: "ears" },
     { name: "Mofu", main: "#5bd7ff", shade: "#1479c9", glow: "#d9fbff", cheek: "#ffb8d4", feature: "horn" },
@@ -36,12 +38,15 @@
 
   const state = {
     pieces: [],
+    items: [],
     selected: [],
     pointer: { x: 0, y: 0, prevX: 0, prevY: 0, active: false },
     activeTouchId: null,
     lastTouchTime: -Infinity,
     tilt: {
       enabled: false,
+      permissionGranted: false,
+      sensitivity: "medium",
       x: 0,
       y: 0,
       targetX: 0,
@@ -62,7 +67,8 @@
     flashes: [],
     refillQueue: [],
     warningBeepAt: 0,
-    screenBurst: 0
+    screenBurst: 0,
+    shake: 0
   };
 
   class AudioEngine {
@@ -192,6 +198,14 @@
         [523.25, 659.25, 783.99].forEach((f, i) => this.note(f * (1 + amount * 0.015), t + i * 0.035, 0.18, "triangle", 0.09, this.master, 1.3));
       }
       if (name === "combo") [659.25, 783.99, 987.77, 1174.66].forEach((f, i) => this.note(f, t + i * 0.045, 0.16, "square", 0.075, this.master, 1.12));
+      if (name === "star") {
+        [783.99, 1046.5, 1318.51, 1567.98].forEach((f, i) => this.note(f, t + i * 0.045, 0.22, "sine", 0.1, this.master, 1.12));
+        this.noise(t, 0.24, 0.07, 2300);
+      }
+      if (name === "giant") {
+        [196, 261.63, 392, 523.25].forEach((f, i) => this.note(f, t + i * 0.055, 0.3, "sawtooth", 0.07, this.master, 1.3));
+        this.noise(t, 0.3, 0.1, 620);
+      }
       if (name === "warn") this.note(880, t, 0.12, "sawtooth", 0.07, this.master, 0.78);
       if (name === "end") [523.25, 493.88, 392.0, 261.63].forEach((f, i) => this.note(f, t + i * 0.12, 0.28, "triangle", 0.11, this.master, 0.92));
     }
@@ -203,11 +217,14 @@
     return Math.floor(Math.random() * max);
   }
 
-  function makePiece(type = rand(TYPES.length), delay = 0, initialY = null) {
-    const radius = RADIUS * (0.92 + Math.random() * 0.13);
+  function makePiece(type = rand(TYPES.length), delay = 0, initialY = null, options = {}) {
+    const isGiant = Boolean(options.giant);
+    const radius = isGiant ? Math.min(RADIUS * Math.sqrt(10), W * 0.235) : RADIUS * (0.92 + Math.random() * 0.1);
     return {
       id: state.nextId++,
       type,
+      isGiant,
+      chainWeight: isGiant ? 10 : 1,
       x: radius + 12 + Math.random() * (W - radius * 2 - 24),
       y: initialY ?? (-radius - 30 - Math.random() * 180),
       vx: (Math.random() - 0.5) * 42,
@@ -227,22 +244,50 @@
     };
   }
 
+  function shuffle(values) {
+    for (let i = values.length - 1; i > 0; i -= 1) {
+      const j = rand(i + 1);
+      [values[i], values[j]] = [values[j], values[i]];
+    }
+    return values;
+  }
+
   function resetBoard() {
     state.pieces = [];
+    state.items = [];
     state.selected = [];
     state.particles = [];
     state.floatTexts = [];
     state.flashes = [];
     state.refillQueue = [];
+    state.shake = 0;
     state.nextId = 1;
+    const featuredType = rand(TYPES.length);
+    const initialTypes = Array(10).fill(featuredType);
+    TYPES.forEach((_, type) => {
+      if (type !== featuredType) initialTypes.push(type, type);
+    });
+    shuffle(initialTypes);
     for (let i = 0; i < PIECE_COUNT; i += 1) {
       const delay = i * 0.035 + Math.random() * 0.18;
-      state.pieces.push(makePiece(rand(TYPES.length), delay, -RADIUS - 40 - Math.random() * 260));
+      state.pieces.push(makePiece(initialTypes[i], delay, -RADIUS - 28 - Math.random() * 150));
     }
   }
 
   function startGame() {
     audio.resume().then(() => audio.startMusic());
+    state.tilt.enabled = state.tilt.permissionGranted;
+    state.tilt.x = 0;
+    state.tilt.y = 0;
+    state.tilt.targetX = 0;
+    state.tilt.targetY = 0;
+    state.tilt.neutralBeta = null;
+    state.tilt.neutralGamma = null;
+    if (state.tilt.enabled) {
+      window.removeEventListener("deviceorientation", handleOrientation);
+      window.addEventListener("deviceorientation", handleOrientation, { passive: true });
+      motionStatus.textContent = "傾き操作：オン";
+    }
     resetBoard();
     state.running = true;
     state.gameOver = false;
@@ -265,6 +310,9 @@
     if (!state.running) return;
     state.running = false;
     state.gameOver = true;
+    state.tilt.enabled = false;
+    state.tilt.targetX = 0;
+    state.tilt.targetY = 0;
     state.selected = [];
     state.screenBurst = 1;
     finalScoreEl.textContent = String(state.score);
@@ -297,6 +345,75 @@
       }
     });
     return closest;
+  }
+
+  function makeClockOrb(x, y) {
+    return {
+      id: `orb-${state.nextId++}`,
+      x: clamp(x, RADIUS, W - RADIUS),
+      y: clamp(y, RADIUS, H - RADIUS),
+      radius: RADIUS * 0.7,
+      pulse: Math.random() * Math.PI * 2,
+      rotation: 0,
+      spawnDelay: 0.2
+    };
+  }
+
+  function itemAtPoint(x, y) {
+    return state.items.find((item) => item.spawnDelay <= 0 && Math.hypot(x - item.x, y - item.y) <= item.radius * 1.45) || null;
+  }
+
+  function burstPiece(piece, centerX, centerY, particleCount = 10) {
+    if (piece.vanish) return;
+    piece.vanish = true;
+    piece.vanishTime = 0.19;
+    piece.pop = piece.isGiant ? 2.3 : 1.8;
+    piece.vx += (piece.x - centerX) * 1.5;
+    piece.vy += (piece.y - centerY) * 1.5 - 60;
+    for (let i = 0; i < particleCount; i += 1) {
+      state.particles.push({
+        x: piece.x + (Math.random() - 0.5) * piece.radius,
+        y: piece.y + (Math.random() - 0.5) * piece.radius,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5 - 1,
+        life: 0.7 + Math.random() * 0.3,
+        size: 1.5 + Math.random() * 3,
+        color: TYPES[piece.type].glow
+      });
+    }
+  }
+
+  function activateClockOrb(orb) {
+    if (!state.running) return;
+    state.items = state.items.filter((item) => item.id !== orb.id);
+    const blastRadius = RADIUS * 3.1;
+    const targets = state.pieces.filter((piece) => isSelectable(piece) && Math.hypot(piece.x - orb.x, piece.y - orb.y) <= blastRadius + piece.radius * 0.35);
+    const giantCount = targets.filter((piece) => piece.isGiant).length;
+    targets.forEach((piece) => burstPiece(piece, orb.x, orb.y, piece.isGiant ? 18 : 8));
+    targets.forEach((_, index) => state.refillQueue.push({ delay: 0.16 + index * 0.08, type: rand(TYPES.length) }));
+
+    const points = 500 + targets.length * 120 + giantCount * 1800;
+    state.score += points;
+    state.timeLeft = Math.min(99, state.timeLeft + 3);
+    scoreEl.textContent = String(state.score);
+    timeEl.textContent = String(Math.ceil(state.timeLeft));
+    state.floatTexts.push({ x: orb.x, y: orb.y - 10, text: `+${points} / +3秒`, life: 1.2, color: "#9ffcff", size: 24 });
+    state.flashes.push({ x: W / 2, y: H * 0.28, life: 1, text: "クロックオーブ！", big: true });
+    state.screenBurst = Math.max(state.screenBurst, 0.75);
+    state.shake = Math.max(state.shake, 0.35);
+    audio.sfx("star");
+    for (let i = 0; i < 42; i += 1) {
+      const angle = (i / 42) * Math.PI * 2;
+      state.particles.push({
+        x: orb.x,
+        y: orb.y,
+        vx: Math.cos(angle) * (2 + Math.random() * 4),
+        vy: Math.sin(angle) * (2 + Math.random() * 4),
+        life: 0.8 + Math.random() * 0.25,
+        size: 2 + Math.random() * 3,
+        color: i % 2 ? "#9ffcff" : "#fff178"
+      });
+    }
   }
 
   function isSelectable(piece) {
@@ -348,7 +465,8 @@
       return;
     }
     const distanceFromLast = Math.hypot(piece.x - last.x, piece.y - last.y);
-    if (piece.type !== selected[0].type || piece.id === last.id || selected.some((p) => p.id === piece.id) || distanceFromLast > LINK_DISTANCE) return;
+    const allowedDistance = Math.max(LINK_DISTANCE, last.radius + piece.radius + RADIUS * 1.15);
+    if (piece.type !== selected[0].type || piece.id === last.id || selected.some((p) => p.id === piece.id) || distanceFromLast > allowedDistance) return;
     selected.push(piece);
     piece.pop = 1;
     audio.sfx("link", selected.length);
@@ -380,11 +498,17 @@
   function clearSelection() {
     const chain = [...state.selected];
     const length = chain.length;
+    const giantCount = chain.filter((piece) => piece.isGiant).length;
+    const normalCount = length - giantCount;
     state.combo += 1;
     state.comboCooldown = 3.2;
-    const base = length * length * 35;
-    const comboBonus = Math.floor(base * (1 + (state.combo - 1) * 0.32));
-    state.score += comboBonus;
+
+    const basePoints = normalCount * 100 + giantCount * 1400;
+    const chainBonus = length >= 10 ? 2500 : length >= 5 ? 600 : 0;
+    const giantBonus = giantCount * 1800;
+    const comboMultiplier = 1 + (state.combo - 1) * 0.25;
+    const earnedPoints = Math.floor((basePoints + chainBonus + giantBonus) * comboMultiplier);
+    state.score += earnedPoints;
     scoreEl.textContent = String(state.score);
     comboEl.textContent = String(state.combo);
     audio.sfx("pop", length);
@@ -392,41 +516,69 @@
 
     const cx = chain.reduce((sum, p) => sum + p.x, 0) / length;
     const cy = chain.reduce((sum, p) => sum + p.y, 0) / length;
-    state.floatTexts.push({ x: cx, y: cy, text: `+${comboBonus}`, life: 1, color: "#fff178", size: Math.min(44, 22 + length * 2) });
+    state.floatTexts.push({ x: cx, y: cy, text: `+${earnedPoints}`, life: 1, color: "#fff178", size: Math.min(36, 18 + length) });
     if (state.combo >= 2) state.flashes.push({ x: W / 2, y: H * 0.32, life: 1, text: `${state.combo} COMBO`, big: true });
 
-    chain.forEach((piece) => {
-      piece.vanish = true;
-      piece.vanishTime = 0.19;
-      piece.pop = 1.8;
-      piece.vx += (piece.x - cx) * 1.8;
-      piece.vy += (piece.y - cy) * 1.8 - 80;
-      for (let i = 0; i < 15; i += 1) {
-        state.particles.push({
-          x: piece.x + (Math.random() - 0.5) * 28,
-          y: piece.y + (Math.random() - 0.5) * 28,
-          vx: (Math.random() - 0.5) * 7,
-          vy: (Math.random() - 0.5) * 7 - 1.5,
-          life: 0.75 + Math.random() * 0.35,
-          size: 2 + Math.random() * 5,
-          color: TYPES[piece.type].glow
-        });
-      }
-    });
+    chain.forEach((piece) => burstPiece(piece, cx, cy, piece.isGiant ? 20 : 10));
 
-    chain.forEach((piece, index) => {
+    const createsGiant = length >= 10;
+    const refillCount = length - (createsGiant ? 1 : 0);
+    for (let index = 0; index < refillCount; index += 1) {
       state.refillQueue.push({
         delay: 0.18 + index * 0.105 + Math.random() * 0.06,
         type: rand(TYPES.length)
       });
-    });
+    }
+
+    if (length >= 5) {
+      state.items.push(makeClockOrb(cx, cy));
+      state.flashes.push({ x: W / 2, y: H * 0.23, life: 1, text: "クロックオーブ", big: length >= 10 });
+      state.screenBurst = Math.max(state.screenBurst, length >= 10 ? 0.85 : 0.48);
+      audio.sfx("star");
+      const sparkleCount = length >= 10 ? 38 : 24;
+      for (let i = 0; i < sparkleCount; i += 1) {
+        state.particles.push({
+          x: cx,
+          y: cy,
+          vx: (Math.random() - 0.5) * 6,
+          vy: (Math.random() - 0.5) * 6,
+          life: 0.65 + Math.random() * 0.3,
+          size: 1.5 + Math.random() * 3,
+          color: i % 2 ? "#9ffcff" : "#fff178"
+        });
+      }
+    }
+
+    if (createsGiant) {
+      state.refillQueue.push({
+        delay: 0.3,
+        type: chain[0].type,
+        giant: true,
+        x: cx,
+        y: cy
+      });
+    }
   }
 
   function updateRefill(dt) {
     state.refillQueue.forEach((item) => { item.delay -= dt; });
     const ready = state.refillQueue.filter((item) => item.delay <= 0);
     state.refillQueue = state.refillQueue.filter((item) => item.delay > 0);
-    ready.forEach((item) => state.pieces.push(makePiece(item.type, 0)));
+    ready.forEach((item) => {
+      const piece = makePiece(item.type, 0, item.giant ? item.y : null, { giant: item.giant });
+      if (item.giant) {
+        piece.x = clamp(item.x, piece.radius + 5, W - piece.radius - 5);
+        piece.y = clamp(item.y, piece.radius + 5, H - piece.radius - 5);
+        piece.vx = 0;
+        piece.vy = -45;
+        piece.pop = 2.2;
+        state.shake = Math.max(state.shake, 0.85);
+        state.screenBurst = Math.max(state.screenBurst, 0.9);
+        state.flashes.push({ x: W / 2, y: H * 0.46, life: 1, text: "メガまる！", big: true });
+        audio.sfx("giant");
+      }
+      state.pieces.push(piece);
+    });
   }
 
   function touchForEvent(event) {
@@ -460,6 +612,12 @@
     event.preventDefault();
     const pos = pointerPosition(event);
     if (!pos) return;
+    const item = itemAtPoint(pos.x, pos.y);
+    if (item) {
+      activateClockOrb(item);
+      state.activeTouchId = null;
+      return;
+    }
     state.pointer = { ...pos, prevX: pos.x, prevY: pos.y, active: true };
     trySelect(pieceAtPoint(pos.x, pos.y));
   }
@@ -511,8 +669,8 @@
       state.tilt.neutralGamma = event.gamma;
     }
 
-    state.tilt.targetX = clamp((event.gamma - state.tilt.neutralGamma) / 34, -1, 1);
-    state.tilt.targetY = clamp((event.beta - state.tilt.neutralBeta) / 42, -1, 1);
+    state.tilt.targetX = clamp((event.gamma - state.tilt.neutralGamma) / 24, -1, 1);
+    state.tilt.targetY = clamp((event.beta - state.tilt.neutralBeta) / 30, -1, 1);
   }
 
   async function enableTiltControl() {
@@ -537,15 +695,19 @@
         }
       }
 
-      state.tilt.enabled = true;
-      state.tilt.neutralBeta = null;
-      state.tilt.neutralGamma = null;
-      window.removeEventListener("deviceorientation", handleOrientation);
-      window.addEventListener("deviceorientation", handleOrientation, { passive: true });
-      motionButton.textContent = "傾き操作：オン";
-      motionStatus.textContent = "現在の持ち方を基準に設定しました";
+      state.tilt.permissionGranted = true;
+      state.tilt.enabled = state.running;
+      motionButton.textContent = "傾き操作：準備完了";
+      motionStatus.textContent = state.running ? "傾き操作：オン" : "スタート後に傾き操作が有効になります";
+      if (state.running) {
+        state.tilt.neutralBeta = null;
+        state.tilt.neutralGamma = null;
+        window.removeEventListener("deviceorientation", handleOrientation);
+        window.addEventListener("deviceorientation", handleOrientation, { passive: true });
+      }
     } catch (error) {
       state.tilt.enabled = false;
+      state.tilt.permissionGranted = false;
       motionButton.disabled = false;
       motionButton.textContent = "傾き操作を有効にする";
       motionStatus.textContent = "傾き操作を開始できません。指操作で遊べます";
@@ -592,9 +754,11 @@
 
   function updatePieces(dt) {
     const now = performance.now() * 0.001;
-    const tiltEase = Math.min(1, dt * 5.5);
+    const tiltEase = Math.min(1, dt * 7.5);
     state.tilt.x += (state.tilt.targetX - state.tilt.x) * tiltEase;
     state.tilt.y += (state.tilt.targetY - state.tilt.y) * tiltEase;
+    const sensitivity = TILT_MULTIPLIERS[state.tilt.sensitivity];
+    const maxSpeed = state.tilt.sensitivity === "high" ? 175 : state.tilt.sensitivity === "low" ? 115 : 145;
     state.pieces.forEach((piece) => {
       if (piece.spawnDelay > 0) {
         piece.spawnDelay -= dt;
@@ -616,12 +780,15 @@
 
       const selected = state.selected.some((item) => item.id === piece.id);
       const tiltStrength = selected ? 0.24 : 1;
-      piece.vy += GRAVITY * dt;
-      piece.vx += state.tilt.x * 105 * tiltStrength * dt;
-      piece.vy += state.tilt.y * 72 * tiltStrength * dt;
+      const gravity = state.tilt.enabled ? GRAVITY * 0.72 : GRAVITY;
+      piece.vy += gravity * dt;
+      piece.vx += state.tilt.x * 360 * sensitivity * tiltStrength * dt;
+      piece.vy += state.tilt.y * 650 * sensitivity * tiltStrength * dt;
       piece.vx += Math.sin(now * piece.driftSpeed + piece.driftPhase) * 5.5 * dt;
       piece.vx *= Math.pow(0.76, dt);
       piece.angularVelocity *= Math.pow(0.7, dt);
+      piece.vx = clamp(piece.vx, -maxSpeed, maxSpeed);
+      piece.vy = clamp(piece.vy, -maxSpeed, maxSpeed);
       piece.x += piece.vx * dt;
       piece.y += piece.vy * dt;
 
@@ -652,6 +819,14 @@
     state.pieces = state.pieces.filter((piece) => !piece.vanish || piece.vanishTime > 0);
   }
 
+  function updateItems(dt) {
+    state.items.forEach((item) => {
+      item.spawnDelay -= dt;
+      item.pulse += dt * 4.2;
+      item.rotation += dt * 1.3;
+    });
+  }
+
   function update(dt) {
     if (state.running) {
       updateRefill(dt);
@@ -676,6 +851,7 @@
     }
 
     updatePieces(dt);
+    updateItems(dt);
 
     state.particles = state.particles.filter((p) => {
       p.life -= dt * 1.55;
@@ -694,6 +870,7 @@
       return f.life > 0;
     });
     state.screenBurst = Math.max(0, state.screenBurst - dt * 0.45);
+    state.shake = Math.max(0, state.shake - dt * 1.7);
   }
 
   function drawBackground() {
@@ -738,6 +915,18 @@
     ctx.globalAlpha = pieceAlpha;
     ctx.translate(x, y);
     ctx.rotate(piece.angle + Math.sin(piece.wobble * 0.55) * 0.025);
+    if (piece.isGiant) {
+      ctx.save();
+      ctx.globalAlpha = pieceAlpha * (0.48 + Math.sin(time * 5) * 0.12);
+      ctx.strokeStyle = "#fff178";
+      ctx.lineWidth = 5;
+      ctx.shadowColor = info.glow;
+      ctx.shadowBlur = 28;
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (selected) {
       ctx.shadowColor = info.glow;
       ctx.shadowBlur = 25;
@@ -772,6 +961,25 @@
 
     drawFace(info, r, piece.type);
     drawFeatureFront(info, r);
+
+    if (piece.isGiant) {
+      ctx.strokeStyle = "rgba(49,36,90,0.78)";
+      ctx.lineWidth = Math.max(4, r * 0.045);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.44, -r * 0.28);
+      ctx.lineTo(-r * 0.22, -r * 0.34);
+      ctx.moveTo(r * 0.22, -r * 0.34);
+      ctx.lineTo(r * 0.44, -r * 0.28);
+      ctx.stroke();
+      ctx.fillStyle = "#fff178";
+      for (let i = 0; i < 3; i += 1) {
+        const angle = -Math.PI / 2 + (i - 1) * 0.7;
+        ctx.beginPath();
+        ctx.arc(Math.cos(angle) * r * 0.68, Math.sin(angle) * r * 0.68, r * 0.045, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
 
     if (selected) {
       ctx.strokeStyle = "#fff9a8";
@@ -889,6 +1097,56 @@
     ctx.restore();
   }
 
+  function drawItems() {
+    state.items.forEach((item) => {
+      if (item.spawnDelay > 0) return;
+      const pulse = 1 + Math.sin(item.pulse) * 0.08;
+      const r = item.radius * pulse;
+      ctx.save();
+      ctx.translate(item.x, item.y);
+      ctx.rotate(item.rotation);
+      ctx.shadowColor = "#78f5ff";
+      ctx.shadowBlur = 24;
+
+      const glow = ctx.createRadialGradient(-r * 0.25, -r * 0.3, 1, 0, 0, r);
+      glow.addColorStop(0, "#ffffff");
+      glow.addColorStop(0.32, "#a9fbff");
+      glow.addColorStop(0.72, "#56bdf4");
+      glow.addColorStop(1, "#574bd1");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      for (let i = 0; i < 16; i += 1) {
+        const angle = -Math.PI / 2 + (i / 16) * Math.PI * 2;
+        const pointRadius = i % 2 === 0 ? r : r * 0.72;
+        const x = Math.cos(angle) * pointRadius;
+        const y = Math.sin(angle) * pointRadius;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(39,42,112,0.82)";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.48, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#fff178";
+      ctx.lineWidth = Math.max(2, r * 0.1);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -r * 0.3);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(r * 0.24, r * 0.12);
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
   function drawPath(points) {
     ctx.beginPath();
     if (!points.length) return;
@@ -970,10 +1228,17 @@
     state.lastTime = time;
     update(dt);
     drawBackground();
+    ctx.save();
+    if (state.shake > 0) {
+      const strength = state.shake * 7;
+      ctx.translate((Math.random() - 0.5) * strength, (Math.random() - 0.5) * strength);
+    }
     drawConnections();
     state.pieces.forEach(drawPiece);
+    drawItems();
     drawParticles();
     drawTexts();
+    ctx.restore();
     drawScreenBurst();
     requestAnimationFrame(render);
   }
@@ -991,6 +1256,12 @@
   startFromTitle.addEventListener("click", startGame);
   restartFromResult.addEventListener("click", startGame);
   motionButton.addEventListener("click", enableTiltControl);
+  sensitivityButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      state.tilt.sensitivity = button.dataset.sensitivity;
+      sensitivityButtons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+    });
+  });
   muteButton.addEventListener("click", () => {
     audio.setMuted(!audio.muted);
     muteButton.textContent = audio.muted ? "Muted" : "Sound On";

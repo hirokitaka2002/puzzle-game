@@ -74,7 +74,8 @@ body::before {
 
 .stat,
 .control-button,
-.volume-control {
+.volume-control,
+.sensitivity-control {
   border: 1px solid rgba(255, 255, 255, 0.24);
   background: linear-gradient(180deg, var(--panel-strong), var(--panel));
   box-shadow: 0 16px 36px rgba(32, 28, 88, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.28);
@@ -243,7 +244,11 @@ h2 {
 }
 
 .controls {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(150px, 1.35fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.controls > .control-button {
+  grid-column: span 2;
 }
 
 .control-button {
@@ -276,9 +281,54 @@ input:focus-visible {
   font-size: 0.86rem;
 }
 
+.volume-control,
+.sensitivity-control {
+  grid-column: span 3;
+}
+
 .volume-control input {
   width: 100%;
   accent-color: var(--accent);
+}
+
+.sensitivity-control {
+  min-width: 0;
+  min-height: 48px;
+  border-radius: 8px;
+  padding: 6px 8px 6px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.segmented-control {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 3px;
+  border-radius: 7px;
+  background: rgba(25, 24, 76, 0.34);
+}
+
+.segmented-control button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 800;
+}
+
+.segmented-control button[aria-pressed="true"] {
+  background: linear-gradient(180deg, #fff178, #ffad4a);
+  color: #37245a;
+  box-shadow: 0 3px 10px rgba(255, 181, 73, 0.3);
 }
 
 .final-score {
@@ -357,15 +407,17 @@ input:focus-visible {
   }
 
   .controls {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(6, 1fr);
   }
 
-  .volume-control {
+  .volume-control,
+  .sensitivity-control {
     grid-column: 1 / -1;
   }
 
   .control-button,
-  .volume-control {
+  .volume-control,
+  .sensitivity-control {
     min-height: 50px;
   }
 }
@@ -421,5 +473,20 @@ input:focus-visible {
   .volume-control {
     min-height: 44px;
     padding-block: 5px;
+  }
+
+  .sensitivity-control {
+    min-height: 44px;
+    padding-block: 4px;
+  }
+
+  .volume-control,
+  .sensitivity-control {
+    font-size: 0.72rem;
+  }
+
+  .segmented-control button {
+    min-width: 28px;
+    min-height: 32px;
   }
 }
