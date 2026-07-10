@@ -6,6 +6,9 @@
   const scoreEl = document.getElementById("score");
   const timeEl = document.getElementById("time");
   const comboEl = document.getElementById("combo");
+  const feverPanel = document.getElementById("feverPanel");
+  const feverFill = document.getElementById("feverFill");
+  const feverStatus = document.getElementById("feverStatus");
   const finalScoreEl = document.getElementById("finalScore");
   const titleOverlay = document.getElementById("titleOverlay");
   const resultOverlay = document.getElementById("resultOverlay");
@@ -59,6 +62,11 @@
     score: 0,
     combo: 0,
     comboCooldown: 0,
+    fever: {
+      meter: 0,
+      active: false,
+      timeLeft: 0
+    },
     timeLeft: 60,
     lastTime: 0,
     nextId: 1,
@@ -82,6 +90,7 @@
       this.step = 0;
       this.nextTime = 0;
       this.started = false;
+      this.fever = false;
       this.chords = [
         [261.63, 329.63, 392.0],
         [349.23, 440.0, 523.25],
@@ -135,17 +144,21 @@
       this.interval = null;
     }
 
+    setFever(active) {
+      this.fever = active;
+    }
+
     scheduleMusic() {
       if (!this.ctx || !this.started) return;
-      const beat = 0.24;
+      const beat = this.fever ? 0.19 : 0.24;
       while (this.nextTime < this.ctx.currentTime + 0.45) {
         const chordIndex = Math.floor(this.step / 8) % this.chords.length;
         const chord = this.chords[chordIndex];
         const bassNote = this.bass[chordIndex] / (this.step % 8 < 4 ? 1 : 0.5);
-        if (this.step % 8 === 0) chord.forEach((freq, i) => this.note(freq, this.nextTime + i * 0.012, 0.32, "triangle", 0.045, this.music));
+        if (this.step % 8 === 0) chord.forEach((freq, i) => this.note(freq * (this.fever ? 1.12 : 1), this.nextTime + i * 0.012, 0.32, "triangle", this.fever ? 0.06 : 0.045, this.music));
         if (this.step % 2 === 0) this.note(bassNote, this.nextTime, 0.18, "sine", 0.07, this.music);
         const lead = this.melody[this.step % this.melody.length];
-        if (lead) this.note(lead, this.nextTime, 0.16, "square", 0.035, this.music);
+        if (lead) this.note(lead * (this.fever ? 1.25 : 1), this.nextTime, 0.16, "square", this.fever ? 0.052 : 0.035, this.music);
         this.step += 1;
         this.nextTime += beat;
       }
@@ -197,7 +210,10 @@
         this.noise(t, 0.2, 0.12, 1500);
         [523.25, 659.25, 783.99].forEach((f, i) => this.note(f * (1 + amount * 0.015), t + i * 0.035, 0.18, "triangle", 0.09, this.master, 1.3));
       }
-      if (name === "combo") [659.25, 783.99, 987.77, 1174.66].forEach((f, i) => this.note(f, t + i * 0.045, 0.16, "square", 0.075, this.master, 1.12));
+      if (name === "combo") {
+        const pitch = 1 + Math.min(7, amount - 1) * 0.09;
+        [659.25, 783.99, 987.77, 1174.66].forEach((f, i) => this.note(f * pitch, t + i * 0.04, 0.17, "square", 0.065 + Math.min(amount, 5) * 0.008, this.master, 1.14));
+      }
       if (name === "star") {
         [783.99, 1046.5, 1318.51, 1567.98].forEach((f, i) => this.note(f, t + i * 0.045, 0.22, "sine", 0.1, this.master, 1.12));
         this.noise(t, 0.24, 0.07, 2300);
@@ -206,6 +222,12 @@
         [196, 261.63, 392, 523.25].forEach((f, i) => this.note(f, t + i * 0.055, 0.3, "sawtooth", 0.07, this.master, 1.3));
         this.noise(t, 0.3, 0.1, 620);
       }
+      if (name === "super") {
+        [261.63, 392, 523.25, 783.99, 1046.5].forEach((f, i) => this.note(f, t + i * 0.055, 0.26, "sawtooth", 0.085, this.master, 1.3));
+        this.noise(t, 0.42, 0.14, 980);
+      }
+      if (name === "feverStart") [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.note(f, t + i * 0.07, 0.25, "triangle", 0.1, this.master, 1.18));
+      if (name === "feverEnd") [783.99, 659.25, 523.25].forEach((f, i) => this.note(f, t + i * 0.09, 0.22, "sine", 0.08, this.master, 0.84));
       if (name === "warn") this.note(880, t, 0.12, "sawtooth", 0.07, this.master, 0.78);
       if (name === "end") [523.25, 493.88, 392.0, 261.63].forEach((f, i) => this.note(f, t + i * 0.12, 0.28, "triangle", 0.11, this.master, 0.92));
     }
@@ -274,6 +296,42 @@
     }
   }
 
+  function updateFeverUI() {
+    const percent = state.fever.active ? 100 : state.fever.meter;
+    feverFill.style.width = `${percent}%`;
+    feverPanel.classList.toggle("active", state.fever.active);
+    feverStatus.textContent = state.fever.active ? `FEVER ${state.fever.timeLeft.toFixed(1)}s` : "CHARGE";
+  }
+
+  function startFever() {
+    state.fever.active = true;
+    state.fever.timeLeft = 10;
+    state.fever.meter = 100;
+    audio.setFever(true);
+    audio.sfx("feverStart");
+    state.flashes.push({ x: W / 2, y: H * 0.38, life: 1.4, text: "FEVER!", big: true });
+    state.screenBurst = Math.max(state.screenBurst, 1);
+    state.shake = Math.max(state.shake, 0.45);
+    updateFeverUI();
+  }
+
+  function endFever() {
+    state.fever.active = false;
+    state.fever.timeLeft = 0;
+    state.fever.meter = 0;
+    audio.setFever(false);
+    audio.sfx("feverEnd");
+    state.flashes.push({ x: W / 2, y: H * 0.38, life: 1, text: "FEVER END", big: true });
+    updateFeverUI();
+  }
+
+  function addFeverCharge(amount) {
+    if (state.fever.active) return;
+    state.fever.meter = Math.min(100, state.fever.meter + amount);
+    if (state.fever.meter >= 100) startFever();
+    else updateFeverUI();
+  }
+
   function startGame() {
     audio.resume().then(() => audio.startMusic());
     state.tilt.enabled = state.tilt.permissionGranted;
@@ -294,12 +352,17 @@
     state.score = 0;
     state.combo = 0;
     state.comboCooldown = 0;
+    state.fever.meter = 0;
+    state.fever.active = false;
+    state.fever.timeLeft = 0;
+    audio.setFever(false);
     state.timeLeft = 60;
     state.warningBeepAt = 0;
     state.screenBurst = 0;
     scoreEl.textContent = "0";
     comboEl.textContent = "0";
     timeEl.textContent = "60";
+    updateFeverUI();
     timerStat.classList.remove("warning");
     titleOverlay.classList.remove("active");
     resultOverlay.classList.remove("active");
@@ -310,6 +373,12 @@
     if (!state.running) return;
     state.running = false;
     state.gameOver = true;
+    if (state.fever.active) {
+      state.fever.active = false;
+      state.fever.timeLeft = 0;
+      audio.setFever(false);
+      updateFeverUI();
+    }
     state.tilt.enabled = false;
     state.tilt.targetX = 0;
     state.tilt.targetY = 0;
@@ -392,7 +461,7 @@
     targets.forEach((piece) => burstPiece(piece, orb.x, orb.y, piece.isGiant ? 18 : 8));
     targets.forEach((_, index) => state.refillQueue.push({ delay: 0.16 + index * 0.08, type: rand(TYPES.length) }));
 
-    const points = 500 + targets.length * 120 + giantCount * 1800;
+    const points = Math.floor((500 + targets.length * 120 + giantCount * 1800) * (state.fever.active ? 2 : 1));
     state.score += points;
     state.timeLeft = Math.min(99, state.timeLeft + 3);
     scoreEl.textContent = String(state.score);
@@ -500,26 +569,43 @@
     const length = chain.length;
     const giantCount = chain.filter((piece) => piece.isGiant).length;
     const normalCount = length - giantCount;
+    const cx = chain.reduce((sum, piece) => sum + piece.x, 0) / length;
+    const cy = chain.reduce((sum, piece) => sum + piece.y, 0) / length;
+    const specialTargets = length >= 15
+      ? state.pieces.filter((piece) => isSelectable(piece) && !chain.some((selected) => selected.id === piece.id) && Math.hypot(piece.x - cx, piece.y - cy) <= W * 0.46)
+      : [];
     state.combo += 1;
-    state.comboCooldown = 3.2;
+    state.comboCooldown = 2;
 
     const basePoints = normalCount * 100 + giantCount * 1400;
-    const chainBonus = length >= 10 ? 2500 : length >= 5 ? 600 : 0;
+    const chainBonus = length >= 15 ? 6500 : length >= 10 ? 2500 : length >= 5 ? 600 : 0;
     const giantBonus = giantCount * 1800;
-    const comboMultiplier = 1 + (state.combo - 1) * 0.25;
-    const earnedPoints = Math.floor((basePoints + chainBonus + giantBonus) * comboMultiplier);
+    const specialBonus = specialTargets.reduce((sum, piece) => sum + 250 + (piece.isGiant ? 1800 : 0), 0);
+    const comboMultiplier = state.combo === 1 ? 1 : state.combo === 2 ? 1.2 : state.combo === 3 ? 1.5 : state.combo === 4 ? 2 : 2.5;
+    const feverMultiplier = state.fever.active ? 2 : 1;
+    const earnedPoints = Math.floor((basePoints + chainBonus + giantBonus + specialBonus) * comboMultiplier * feverMultiplier);
     state.score += earnedPoints;
     scoreEl.textContent = String(state.score);
     comboEl.textContent = String(state.combo);
     audio.sfx("pop", length);
     if (state.combo >= 2) audio.sfx("combo", state.combo);
 
-    const cx = chain.reduce((sum, p) => sum + p.x, 0) / length;
-    const cy = chain.reduce((sum, p) => sum + p.y, 0) / length;
     state.floatTexts.push({ x: cx, y: cy, text: `+${earnedPoints}`, life: 1, color: "#fff178", size: Math.min(36, 18 + length) });
-    if (state.combo >= 2) state.flashes.push({ x: W / 2, y: H * 0.32, life: 1, text: `${state.combo} COMBO`, big: true });
+    state.flashes.push({ x: W / 2, y: H * 0.32, life: 1, text: `${state.combo}連鎖!`, big: state.combo >= 2 });
 
     chain.forEach((piece) => burstPiece(piece, cx, cy, piece.isGiant ? 20 : 10));
+
+    if (specialTargets.length) {
+      specialTargets.forEach((piece) => burstPiece(piece, cx, cy, piece.isGiant ? 18 : 8));
+      state.flashes.push({ x: W / 2, y: H * 0.52, life: 1.3, text: "STAR WAVE!", big: true });
+      state.screenBurst = Math.max(state.screenBurst, 1);
+      state.shake = Math.max(state.shake, 0.9);
+      audio.sfx("super");
+      for (let i = 0; i < 56; i += 1) {
+        const angle = (i / 56) * Math.PI * 2;
+        state.particles.push({ x: cx, y: cy, vx: Math.cos(angle) * (2 + Math.random() * 6), vy: Math.sin(angle) * (2 + Math.random() * 6), life: 0.8 + Math.random() * 0.35, size: 1.5 + Math.random() * 3.5, color: i % 3 ? "#fff178" : "#9ffcff" });
+      }
+    }
 
     const createsGiant = length >= 10;
     const refillCount = length - (createsGiant ? 1 : 0);
@@ -529,8 +615,12 @@
         type: rand(TYPES.length)
       });
     }
+    specialTargets.forEach((_, index) => {
+      state.refillQueue.push({ delay: 0.2 + (refillCount + index) * 0.075, type: rand(TYPES.length) });
+    });
 
-    if (length >= 5) {
+    const createsOrb = length >= 5 || (state.fever.active && length >= 4);
+    if (createsOrb) {
       state.items.push(makeClockOrb(cx, cy));
       state.flashes.push({ x: W / 2, y: H * 0.23, life: 1, text: "クロックオーブ", big: length >= 10 });
       state.screenBurst = Math.max(state.screenBurst, length >= 10 ? 0.85 : 0.48);
@@ -558,6 +648,8 @@
         y: cy
       });
     }
+
+    addFeverCharge(Math.min(42, length * 7 + (length >= 10 ? 12 : length >= 5 ? 6 : 0)));
   }
 
   function updateRefill(dt) {
@@ -758,7 +850,7 @@
     state.tilt.x += (state.tilt.targetX - state.tilt.x) * tiltEase;
     state.tilt.y += (state.tilt.targetY - state.tilt.y) * tiltEase;
     const sensitivity = TILT_MULTIPLIERS[state.tilt.sensitivity];
-    const maxSpeed = state.tilt.sensitivity === "high" ? 175 : state.tilt.sensitivity === "low" ? 115 : 145;
+    const maxSpeed = (state.tilt.sensitivity === "high" ? 175 : state.tilt.sensitivity === "low" ? 115 : 145) * (state.fever.active ? 1.18 : 1);
     state.pieces.forEach((piece) => {
       if (piece.spawnDelay > 0) {
         piece.spawnDelay -= dt;
@@ -780,7 +872,7 @@
 
       const selected = state.selected.some((item) => item.id === piece.id);
       const tiltStrength = selected ? 0.24 : 1;
-      const gravity = state.tilt.enabled ? GRAVITY * 0.72 : GRAVITY;
+      const gravity = (state.tilt.enabled ? GRAVITY * 0.72 : GRAVITY) * (state.fever.active ? 1.16 : 1);
       piece.vy += gravity * dt;
       piece.vx += state.tilt.x * 360 * sensitivity * tiltStrength * dt;
       piece.vy += state.tilt.y * 650 * sensitivity * tiltStrength * dt;
@@ -830,6 +922,11 @@
   function update(dt) {
     if (state.running) {
       updateRefill(dt);
+      if (state.fever.active) {
+        state.fever.timeLeft = Math.max(0, state.fever.timeLeft - dt);
+        if (state.fever.timeLeft <= 0) endFever();
+        else updateFeverUI();
+      }
       state.timeLeft = Math.max(0, state.timeLeft - dt);
       const displayTime = Math.ceil(state.timeLeft);
       timeEl.textContent = String(displayTime);
@@ -876,11 +973,30 @@
   function drawBackground() {
     ctx.clearRect(0, 0, W, H);
     const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, "#3247b8");
-    g.addColorStop(0.46, "#22a9c7");
-    g.addColorStop(1, "#ffb053");
+    if (state.fever.active) {
+      g.addColorStop(0, "#7944d9");
+      g.addColorStop(0.42, "#ff4d9a");
+      g.addColorStop(0.72, "#ffbd3c");
+      g.addColorStop(1, "#5cf1e7");
+    } else {
+      g.addColorStop(0, "#3247b8");
+      g.addColorStop(0.46, "#22a9c7");
+      g.addColorStop(1, "#ffb053");
+    }
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+
+    if (state.fever.active) {
+      ctx.save();
+      ctx.globalAlpha = 0.34 + Math.sin(performance.now() * 0.008) * 0.1;
+      const feverGlow = ctx.createRadialGradient(W * 0.5, H * 0.44, 8, W * 0.5, H * 0.44, W * 0.7);
+      feverGlow.addColorStop(0, "#ffffff");
+      feverGlow.addColorStop(0.38, "rgba(255, 247, 116, 0.72)");
+      feverGlow.addColorStop(1, "rgba(255, 247, 116, 0)");
+      ctx.fillStyle = feverGlow;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
 
     ctx.save();
     ctx.globalAlpha = 0.13;
