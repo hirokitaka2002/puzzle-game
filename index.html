@@ -28,6 +28,10 @@
         </div>
         <div class="fever-track"><span id="feverFill"></span></div>
       </div>
+      <div class="strategy-panel" aria-label="現在の効果と巨大キャラクター">
+        <span id="effectStatus">効果なし</span>
+        <strong id="giantStatus">GIANT -</strong>
+      </div>
     </section>
 
     <section class="game-stage" aria-label="パズルエリア">
@@ -40,9 +44,25 @@
           <p class="lead">同じまるキャラを3つ以上なぞって、光らせて消そう。</p>
           <div class="title-actions">
             <button id="motionButton" class="secondary-button" type="button">傾き操作を有効にする</button>
+            <button id="abilityButton" class="secondary-button" type="button">キャラクター能力</button>
             <span id="motionStatus" class="motion-status" aria-live="polite">傾き操作はオプションです</span>
             <button id="startFromTitle" class="primary-button" type="button">スタート</button>
           </div>
+        </div>
+      </div>
+
+      <div id="abilityOverlay" class="overlay ability-overlay" aria-hidden="true">
+        <div class="overlay-panel ability-panel">
+          <p class="eyebrow">Character Skills</p>
+          <h2>キャラクター能力</h2>
+          <div class="ability-grid">
+            <p class="ability-card red">赤: 周囲を少し巻き込む</p>
+            <p class="ability-card blue">青: 5個以上で時間+2秒</p>
+            <p class="ability-card yellow">黄: 5個以上で得点2倍</p>
+            <p class="ability-card green">緑: 同じ色を引き寄せる</p>
+            <p class="ability-card purple">紫: 周囲の色を変化</p>
+          </div>
+          <button id="closeAbility" class="primary-button" type="button">戻る</button>
         </div>
       </div>
 
