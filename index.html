@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="orientation-notice">縦向きで遊んでください</div>
   <main class="app-shell">
     <section class="top-panel" aria-label="ゲーム情報">
       <div class="stat">
@@ -45,6 +46,9 @@
           <div class="title-actions">
             <button id="motionButton" class="secondary-button" type="button">傾き操作を有効にする</button>
             <button id="abilityButton" class="secondary-button" type="button">キャラクター能力</button>
+            <button id="howToButton" class="secondary-button" type="button">遊び方</button>
+            <button id="titleSettingsButton" class="secondary-button" type="button">設定</button>
+            <button id="titleMuteButton" class="secondary-button" type="button">音 ON</button>
             <span id="motionStatus" class="motion-status" aria-live="polite">傾き操作はオプションです</span>
             <button id="startFromTitle" class="primary-button" type="button">スタート</button>
           </div>
@@ -66,7 +70,48 @@
         </div>
       </div>
 
-      <div id="resultOverlay" class="overlay">
+      <div id="howToOverlay" class="overlay howto-overlay" aria-hidden="true">
+        <div class="overlay-panel howto-panel">
+          <p class="eyebrow">How To Play</p>
+          <h2>遊び方</h2>
+          <div class="howto-steps">
+            <p><b>1</b><span>同じ色をなぞる</span></p>
+            <p><b>2</b><span>3個以上でポップ</span></p>
+            <p><b>5+</b><span>アイテム出現</span></p>
+            <p><b>10+</b><span>巨大キャラ出現</span></p>
+            <p><b>↔</b><span>傾きで配置を動かす</span></p>
+            <p><b>!</b><span>連鎖とフィーバーで高得点</span></p>
+          </div>
+          <button id="closeHowTo" class="primary-button" type="button">戻る</button>
+        </div>
+      </div>
+
+      <div id="settingsOverlay" class="overlay settings-overlay" aria-hidden="true">
+        <div class="overlay-panel settings-panel">
+          <p class="eyebrow">Settings</p>
+          <h2>設定</h2>
+          <label class="setting-row"><span>BGM</span><input id="bgmSlider" type="range" min="0" max="100" value="55"></label>
+          <label class="setting-row"><span>効果音</span><input id="sfxSlider" type="range" min="0" max="100" value="75"></label>
+          <label class="setting-row toggle-row"><span>ミュート</span><input id="settingsMute" type="checkbox"></label>
+          <label class="setting-row toggle-row"><span>傾き操作</span><input id="tiltToggle" type="checkbox"></label>
+          <label class="setting-row toggle-row"><span>振動</span><input id="vibrationToggle" type="checkbox" checked></label>
+          <div class="setting-row"><span>演出</span><div class="segmented-control"><button type="button" data-effects="low">控えめ</button><button type="button" data-effects="normal" aria-pressed="true">標準</button><button type="button" data-effects="high">派手</button></div></div>
+          <button id="settingsTiltButton" class="secondary-button" type="button">傾き操作を有効にする</button>
+          <button id="closeSettings" class="primary-button" type="button">完了</button>
+        </div>
+      </div>
+
+      <div id="pauseOverlay" class="overlay pause-overlay" aria-hidden="true">
+        <div class="overlay-panel compact-panel">
+          <p class="eyebrow">Paused</p>
+          <h2>一時停止</h2>
+          <button id="resumeButton" class="primary-button" type="button">再開</button>
+          <button id="pauseSettingsButton" class="secondary-button" type="button">設定</button>
+          <button id="titleFromPause" class="secondary-button" type="button">タイトルへ戻る</button>
+        </div>
+      </div>
+
+      <div id="resultOverlay" class="overlay result-overlay">
         <div class="overlay-panel result-panel">
           <p class="eyebrow">Result</p>
           <h2>ゲーム終了</h2>
@@ -74,15 +119,31 @@
             <span>FINAL SCORE</span>
             <strong id="finalScore">0</strong>
           </div>
-          <button id="restartFromResult" class="primary-button" type="button">もう一度遊ぶ</button>
+          <div class="result-stats">
+            <span>最高スコア <b id="bestScore">0</b></span>
+            <span>最大連鎖 <b id="resultMaxChain">0</b></span>
+            <span>最大接続 <b id="resultMaxLink">0</b></span>
+            <span>アイテム使用 <b id="resultItems">0</b></span>
+            <span>巨大消去 <b id="resultGiants">0</b></span>
+            <span>フィーバー <b id="resultFevers">0</b></span>
+          </div>
+          <p id="rankLabel" class="rank-label">BRONZE</p>
+          <div class="result-actions">
+            <button id="restartFromResult" class="primary-button" type="button">もう一度遊ぶ</button>
+            <button id="titleFromResult" class="secondary-button" type="button">タイトルへ戻る</button>
+            <button id="resultSettingsButton" class="secondary-button" type="button">設定</button>
+            <button id="shareButton" class="secondary-button" type="button">スコアを共有</button>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="controls" aria-label="操作">
-      <button id="startButton" class="control-button" type="button">Start</button>
-      <button id="restartButton" class="control-button" type="button">Restart</button>
-      <button id="muteButton" class="control-button icon-button" type="button" aria-pressed="false">Sound On</button>
+      <button id="startButton" class="control-button" type="button">▶ Start</button>
+      <button id="restartButton" class="control-button" type="button">↻ Restart</button>
+      <button id="muteButton" class="control-button icon-button" type="button" aria-pressed="false">♪ Sound</button>
+      <button id="pauseButton" class="control-button icon-button" type="button">Ⅱ Pause</button>
+      <button id="settingsButton" class="control-button icon-button" type="button">⚙ Settings</button>
       <label class="volume-control">
         <span>Volume</span>
         <input id="volumeSlider" type="range" min="0" max="100" value="55">
