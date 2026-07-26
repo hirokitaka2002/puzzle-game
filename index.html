@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>まるリンク・ポップ</title>
+  <title>まるリンク・天空庭園</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -40,10 +40,11 @@
 
       <div id="titleOverlay" class="overlay active">
         <div class="overlay-panel title-panel">
-          <p class="eyebrow">Original Round Link Puzzle</p>
-          <h1>まるリンク・ポップ</h1>
-          <p class="lead">同じまるキャラを3つ以上なぞって、光らせて消そう。</p>
+          <p class="eyebrow">A Little Storybook Sky</p>
+          <h1>まるリンク・天空庭園</h1>
+          <p class="lead">浮かぶ島に舞い降りたまるたちを、魔法の光でつなごう。</p>
           <div class="title-actions">
+            <button id="themeButton" class="secondary-button" type="button">テーマを選ぶ</button>
             <button id="motionButton" class="secondary-button" type="button">傾き操作を有効にする</button>
             <button id="abilityButton" class="secondary-button" type="button">キャラクター能力</button>
             <button id="howToButton" class="secondary-button" type="button">遊び方</button>
@@ -86,16 +87,32 @@
         </div>
       </div>
 
+      <div id="themeOverlay" class="overlay theme-overlay" aria-hidden="true">
+        <div class="overlay-panel theme-panel">
+          <p class="eyebrow">Choose A Tale</p>
+          <h2>物語の舞台</h2>
+          <p class="theme-lead">選んだ舞台は次回も記憶されます。</p>
+          <div class="theme-grid">
+            <button type="button" class="theme-choice garden" data-theme="garden"><b>空の庭</b><span>雲と花の浮遊島</span></button>
+            <button type="button" class="theme-choice forest" data-theme="forest"><b>月夜の森</b><span>月明かりと蛍の森</span></button>
+            <button type="button" class="theme-choice sea" data-theme="sea"><b>星の海</b><span>星雲と光る小島</span></button>
+          </div>
+          <button id="closeTheme" class="primary-button" type="button">この舞台で遊ぶ</button>
+        </div>
+      </div>
+
       <div id="settingsOverlay" class="overlay settings-overlay" aria-hidden="true">
         <div class="overlay-panel settings-panel">
           <p class="eyebrow">Settings</p>
           <h2>設定</h2>
           <label class="setting-row"><span>BGM</span><input id="bgmSlider" type="range" min="0" max="100" value="55"></label>
           <label class="setting-row"><span>効果音</span><input id="sfxSlider" type="range" min="0" max="100" value="75"></label>
+          <label class="setting-row"><span>環境音</span><input id="ambientSlider" type="range" min="0" max="100" value="30"></label>
           <label class="setting-row toggle-row"><span>ミュート</span><input id="settingsMute" type="checkbox"></label>
           <label class="setting-row toggle-row"><span>傾き操作</span><input id="tiltToggle" type="checkbox"></label>
           <label class="setting-row toggle-row"><span>振動</span><input id="vibrationToggle" type="checkbox" checked></label>
           <div class="setting-row"><span>演出</span><div class="segmented-control"><button type="button" data-effects="low">控えめ</button><button type="button" data-effects="normal" aria-pressed="true">標準</button><button type="button" data-effects="high">派手</button></div></div>
+          <button id="settingsThemeButton" class="secondary-button" type="button">物語の舞台を選ぶ</button>
           <button id="settingsTiltButton" class="secondary-button" type="button">傾き操作を有効にする</button>
           <button id="closeSettings" class="primary-button" type="button">完了</button>
         </div>

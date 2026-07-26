@@ -35,6 +35,10 @@
   const howToButton = document.getElementById("howToButton");
   const howToOverlay = document.getElementById("howToOverlay");
   const closeHowTo = document.getElementById("closeHowTo");
+  const themeButton = document.getElementById("themeButton");
+  const themeOverlay = document.getElementById("themeOverlay");
+  const closeTheme = document.getElementById("closeTheme");
+  const themeButtons = [...document.querySelectorAll("[data-theme]")];
   const titleSettingsButton = document.getElementById("titleSettingsButton");
   const settingsOverlay = document.getElementById("settingsOverlay");
   const closeSettings = document.getElementById("closeSettings");
@@ -52,6 +56,7 @@
   const volumeSlider = document.getElementById("volumeSlider");
   const bgmSlider = document.getElementById("bgmSlider");
   const sfxSlider = document.getElementById("sfxSlider");
+  const ambientSlider = document.getElementById("ambientSlider");
   const settingsMute = document.getElementById("settingsMute");
   const tiltToggle = document.getElementById("tiltToggle");
   const vibrationToggle = document.getElementById("vibrationToggle");
@@ -81,8 +86,13 @@
     black: { label: "ブラックホール", color: "#2c2556", accent: "#9b78ff" },
     freeze: { label: "フリーズオーブ", color: "#8ff6e8", accent: "#ffffff" }
   };
+  const THEMES = {
+    garden: { name: "空の庭", sky: ["#8cd9f6", "#94c3ef", "#f7b7c9"], deep: "#4d83ad", land: "#5d9f6a", leaf: "#3d7b59", light: "#fff5af", magic: "#fff0a1", ornament: "petal" },
+    forest: { name: "月夜の森", sky: ["#19255f", "#40539c", "#75558f"], deep: "#202c64", land: "#315c62", leaf: "#214a4c", light: "#d9e9ff", magic: "#b9e8ff", ornament: "firefly" },
+    sea: { name: "星の海", sky: ["#101943", "#344b8d", "#6e4d9b"], deep: "#192252", land: "#527bb2", leaf: "#426b9c", light: "#d9f4ff", magic: "#bceeff", ornament: "star" }
+  };
   const SETTINGS_KEY = "marulinkpop-settings-v1";
-  const DEFAULT_SETTINGS = { bgmVolume: 0.55, sfxVolume: 0.75, muted: false, tilt: false, sensitivity: "medium", vibration: true, effects: "normal", bestScore: 0 };
+  const DEFAULT_SETTINGS = { bgmVolume: 0.55, sfxVolume: 0.75, ambientVolume: 0.3, theme: "garden", muted: false, tilt: false, sensitivity: "medium", vibration: true, effects: "normal", bestScore: 0 };
 
   function loadSettings() {
     try {
@@ -138,6 +148,7 @@
     warningBeepAt: 0,
     screenBurst: 0,
     shake: 0,
+    worldPulse: 0,
     stats: { maxChain: 0, maxLink: 0, itemsUsed: 0, giantsCleared: 0, fevers: 0 }
   };
 
@@ -147,8 +158,10 @@
       this.master = null;
       this.music = null;
       this.effects = null;
+      this.ambience = null;
       this.volume = settings.bgmVolume;
       this.sfxVolume = settings.sfxVolume;
+      this.ambientVolume = settings.ambientVolume;
       this.muted = settings.muted;
       this.interval = null;
       this.step = 0;
@@ -173,11 +186,14 @@
       this.master = this.ctx.createGain();
       this.music = this.ctx.createGain();
       this.effects = this.ctx.createGain();
+      this.ambience = this.ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 1;
       this.music.gain.value = this.volume * 0.4;
       this.effects.gain.value = this.sfxVolume;
+      this.ambience.gain.value = this.ambientVolume * 0.18;
       this.music.connect(this.master);
       this.effects.connect(this.master);
+      this.ambience.connect(this.master);
       this.master.connect(this.ctx.destination);
     }
 
@@ -194,6 +210,11 @@
     setSfxVolume(value) {
       this.sfxVolume = value;
       if (this.effects) this.effects.gain.setTargetAtTime(value, this.ctx.currentTime, 0.03);
+    }
+
+    setAmbientVolume(value) {
+      this.ambientVolume = value;
+      if (this.ambience) this.ambience.gain.setTargetAtTime(value * 0.18, this.ctx.currentTime, 0.03);
     }
 
     setMuted(muted) {
@@ -231,8 +252,21 @@
         if (this.step % 2 === 0) this.note(bassNote, this.nextTime, 0.18, "sine", 0.07, this.music);
         const lead = this.melody[this.step % this.melody.length];
         if (lead) this.note(lead * (this.fever ? 1.25 : 1), this.nextTime, 0.16, "square", this.fever ? 0.052 : 0.035, this.music);
+        if (this.step % 8 === 4) this.playAmbience(this.nextTime, chordIndex);
         this.step += 1;
         this.nextTime += beat;
+      }
+    }
+
+    playAmbience(start, chordIndex) {
+      if (!this.ambience || this.ambientVolume <= 0.01) return;
+      const theme = settings.theme;
+      if (theme === "garden") {
+        this.note([1046.5, 1174.66, 1318.51][chordIndex % 3], start, 0.58, "sine", 0.045, this.ambience, 1.02);
+      } else if (theme === "forest") {
+        this.note([329.63, 392, 493.88][chordIndex % 3], start, 0.8, "sine", 0.045, this.ambience, 0.99);
+      } else {
+        this.note([174.61, 220, 261.63][chordIndex % 3], start, 0.95, "triangle", 0.038, this.ambience, 1.01);
       }
     }
 
@@ -328,10 +362,12 @@
     state.tilt.sensitivity = settings.sensitivity;
     audio.setVolume(settings.bgmVolume);
     audio.setSfxVolume(settings.sfxVolume);
+    audio.setAmbientVolume(settings.ambientVolume);
     audio.setMuted(settings.muted);
     volumeSlider.value = String(Math.round(settings.bgmVolume * 100));
     bgmSlider.value = String(Math.round(settings.bgmVolume * 100));
     sfxSlider.value = String(Math.round(settings.sfxVolume * 100));
+    ambientSlider.value = String(Math.round(settings.ambientVolume * 100));
     settingsMute.checked = settings.muted;
     tiltToggle.checked = settings.tilt;
     vibrationToggle.checked = settings.vibration;
@@ -340,6 +376,16 @@
     muteButton.setAttribute("aria-pressed", String(settings.muted));
     sensitivityButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.sensitivity === settings.sensitivity)));
     effectButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.effects === settings.effects)));
+    themeButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.theme === settings.theme)));
+    document.body.dataset.theme = settings.theme;
+  }
+
+  function selectTheme(theme) {
+    if (!THEMES[theme]) return;
+    settings.theme = theme;
+    state.worldPulse = 0.72;
+    saveSettings();
+    applySettings();
   }
 
   function haptic(pattern = 12) {
@@ -524,6 +570,7 @@
     audio.sfx("feverStart");
     state.flashes.push({ x: W / 2, y: H * 0.38, life: 1.4, text: "FEVER!", big: true });
     state.screenBurst = Math.max(state.screenBurst, 1);
+    state.worldPulse = Math.max(state.worldPulse, 1);
     state.shake = Math.max(state.shake, 0.45);
     updateFeverUI();
     updateStrategyUI();
@@ -535,6 +582,7 @@
     state.fever.meter = 0;
     audio.setFever(false);
     audio.sfx("feverEnd");
+    state.worldPulse = Math.max(state.worldPulse, 0.42);
     state.flashes.push({ x: W / 2, y: H * 0.38, life: 1, text: "FEVER END", big: true });
     updateFeverUI();
   }
@@ -780,6 +828,7 @@
     state.floatTexts.push({ x: item.x, y: item.y - 10, text: points ? `+${points}` : label, life: 1.2, color: config.accent, size: 21 });
     state.flashes.push({ x: W / 2, y: H * 0.28, life: 1, text: label, big: true });
     state.screenBurst = Math.max(state.screenBurst, 0.7);
+    state.worldPulse = Math.max(state.worldPulse, item.kind === "black" ? 1 : 0.62);
     addItemBurst(item.x, item.y, config.color, item.kind === "black" ? 42 : 28);
     haptic(item.kind === "black" ? [14, 30, 16] : 10);
     updateStrategyUI();
@@ -976,6 +1025,7 @@
         piece.pop = 2.2;
         state.shake = Math.max(state.shake, 0.85);
         state.screenBurst = Math.max(state.screenBurst, 0.9);
+        state.worldPulse = Math.max(state.worldPulse, 0.95);
         state.flashes.push({ x: W / 2, y: H * 0.46, life: 1, text: "メガまる！", big: true });
         audio.sfx("giant");
       }
@@ -1315,49 +1365,97 @@
     });
     state.screenBurst = Math.max(0, state.screenBurst - dt * 0.45);
     state.shake = Math.max(0, state.shake - dt * 1.7);
+    state.worldPulse = Math.max(0, state.worldPulse - dt * 0.7);
     const particleLimit = effectParticleLimit();
     if (state.particles.length > particleLimit) state.particles.splice(0, state.particles.length - particleLimit);
   }
 
   function drawBackground() {
     ctx.clearRect(0, 0, W, H);
+    const theme = THEMES[settings.theme] || THEMES.garden;
+    const now = performance.now() * 0.001;
+    const danger = clamp((18 - state.timeLeft) / 18, 0, 1);
     const g = ctx.createLinearGradient(0, 0, W, H);
     if (state.fever.active) {
-      g.addColorStop(0, "#7944d9");
-      g.addColorStop(0.42, "#ff4d9a");
-      g.addColorStop(0.72, "#ffbd3c");
-      g.addColorStop(1, "#5cf1e7");
+      g.addColorStop(0, "#7a5de4");
+      g.addColorStop(0.42, "#ef8fc7");
+      g.addColorStop(0.72, "#ffe071");
+      g.addColorStop(1, "#8ce8d3");
     } else {
-      g.addColorStop(0, "#3247b8");
-      g.addColorStop(0.46, "#22a9c7");
-      g.addColorStop(1, "#ffb053");
+      g.addColorStop(0, theme.sky[0]);
+      g.addColorStop(0.53, theme.sky[1]);
+      g.addColorStop(1, theme.sky[2]);
     }
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
 
-    if (state.fever.active) {
-      ctx.save();
-      ctx.globalAlpha = 0.34 + Math.sin(performance.now() * 0.008) * 0.1;
-      const feverGlow = ctx.createRadialGradient(W * 0.5, H * 0.44, 8, W * 0.5, H * 0.44, W * 0.7);
-      feverGlow.addColorStop(0, "#ffffff");
-      feverGlow.addColorStop(0.38, "rgba(255, 247, 116, 0.72)");
-      feverGlow.addColorStop(1, "rgba(255, 247, 116, 0)");
-      ctx.fillStyle = feverGlow;
-      ctx.fillRect(0, 0, W, H);
-      ctx.restore();
-    }
-
+    // Distant stars and slow clouds form the farthest paper-cut layer.
     ctx.save();
-    ctx.globalAlpha = 0.13;
-    ctx.fillStyle = "#ffffff";
-    for (let i = 0; i < 22; i += 1) {
-      const x = (i * 137 + 43) % W;
-      const y = (i * 83 + 72) % H;
-      const r = 3 + (i % 5) * 2;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
+    ctx.globalAlpha = settings.theme === "garden" ? 0.28 : 0.7;
+    ctx.fillStyle = theme.light;
+    for (let i = 0; i < 34; i += 1) {
+      const x = (i * 83 + Math.sin(now * 0.15 + i) * 22 + 17) % W;
+      const y = (i * 49 + 21) % 188;
+      const r = 0.7 + (i % 3) * 0.55;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
     }
+    if (settings.theme === "forest") {
+      ctx.globalAlpha = 0.88;
+      ctx.fillStyle = "#f9f4d8";
+      ctx.beginPath(); ctx.arc(W * 0.78, 58, 28, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = theme.sky[0];
+      ctx.beginPath(); ctx.arc(W * 0.8, 51, 27, 0, Math.PI * 2); ctx.fill();
+    }
+    if (settings.theme === "sea") {
+      ctx.globalAlpha = 0.32;
+      ctx.strokeStyle = "#a8dcff"; ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i += 1) { ctx.beginPath(); ctx.arc(W * 0.5, H * 0.34, 56 + i * 28 + Math.sin(now + i) * 4, 0, Math.PI * 2); ctx.stroke(); }
+    }
+    ctx.globalAlpha = 0.45;
+    ctx.fillStyle = "#ffffff";
+    for (let i = 0; i < 5; i += 1) {
+      const cx = ((i * 91 + now * (3 + i)) % (W + 80)) - 40;
+      const cy = 34 + (i % 3) * 42;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 32, 10, 0, 0, Math.PI * 2); ctx.ellipse(cx + 22, cy + 3, 22, 8, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // Folded mountain range and a floating island keep the play surface grounded.
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = theme.deep;
+    ctx.beginPath(); ctx.moveTo(0, 184); ctx.lineTo(58, 122); ctx.lineTo(118, 184); ctx.lineTo(197, 106); ctx.lineTo(282, 184); ctx.lineTo(360, 132); ctx.lineTo(360, 224); ctx.lineTo(0, 224); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 0.8;
+    const islandY = 302 + Math.sin(now * 0.45) * 2;
+    ctx.fillStyle = theme.land;
+    ctx.beginPath(); ctx.ellipse(W * 0.5, islandY, 168, 42, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = theme.leaf;
+    ctx.beginPath(); ctx.moveTo(38, islandY); ctx.quadraticCurveTo(96, islandY + 62, 170, islandY + 41); ctx.quadraticCurveTo(248, islandY + 68, 325, islandY + 1); ctx.quadraticCurveTo(235, islandY + 27, 161, islandY + 19); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.24)";
+    for (let i = 0; i < 9; i += 1) { ctx.beginPath(); ctx.arc(54 + i * 34, islandY - 20 - (i % 2) * 4, 4, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+
+    // Foreground decorative motes. Count is tied to the existing effects setting.
+    const moteCount = settings.effects === "low" ? 8 : settings.effects === "high" ? 23 : 15;
+    ctx.save();
+    ctx.globalAlpha = 0.55 + (state.fever.active ? 0.22 : 0);
+    ctx.fillStyle = theme.light;
+    for (let i = 0; i < moteCount; i += 1) {
+      const x = (i * 61 + now * (8 + (i % 4) * 3)) % (W + 24) - 12;
+      const y = (i * 37 + Math.sin(now * 1.1 + i) * 18 + 38) % H;
+      const r = 1 + (i % 3) * 0.7;
+      if (theme.ornament === "petal") { ctx.save(); ctx.translate(x, y); ctx.rotate(now + i); ctx.ellipse(0, 0, r * 2.2, r, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+      else { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); }
+    }
+    if (state.fever.active || state.worldPulse > 0) {
+      const alpha = Math.min(0.55, 0.15 + state.worldPulse * 0.34);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = "#fff6b0"; ctx.lineWidth = 7; ctx.shadowColor = "#fff4a2"; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.arc(W * 0.5, H * 0.5, 124 + Math.sin(now * 3) * 8, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+      ctx.strokeStyle = "#b9efff"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(W * 0.5, H * 0.5, 142, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+    }
+    if (danger > 0) { ctx.globalAlpha = danger * 0.22; ctx.fillStyle = "#68406a"; ctx.fillRect(0, 0, W, H); }
     ctx.restore();
   }
 
@@ -1432,6 +1530,20 @@
 
     drawFace(info, r, piece.type, piece, selected);
     drawFeatureFront(info, r);
+
+    const theme = THEMES[settings.theme] || THEMES.garden;
+    ctx.save();
+    ctx.globalAlpha = 0.64;
+    ctx.fillStyle = theme.light;
+    if (theme.ornament === "petal") {
+      ctx.beginPath(); ctx.ellipse(r * 0.54, -r * 0.46, r * 0.1, r * 0.055, -0.65, 0, Math.PI * 2); ctx.fill();
+    } else if (theme.ornament === "firefly") {
+      ctx.shadowColor = theme.light; ctx.shadowBlur = 8; ctx.beginPath(); ctx.arc(r * 0.55, -r * 0.45, r * 0.065, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.translate(r * 0.55, -r * 0.48); ctx.rotate(time); ctx.beginPath();
+      for (let i = 0; i < 8; i += 1) { const a = -Math.PI / 2 + i * Math.PI / 4; const rr = i % 2 ? r * 0.035 : r * 0.105; const px = Math.cos(a) * rr; const py = Math.sin(a) * rr; if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); } ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
 
     if (piece.isGiant) {
       ctx.strokeStyle = "rgba(49,36,90,0.78)";
@@ -1576,16 +1688,23 @@
     ctx.save();
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    ctx.shadowColor = "#fff178";
+    const theme = THEMES[settings.theme] || THEMES.garden;
+    ctx.shadowColor = theme.magic;
     ctx.shadowBlur = Math.min(42, 14 + state.selected.length * 3.2);
-    ctx.strokeStyle = `rgba(255, 245, 120, ${Math.min(0.82, 0.34 + state.selected.length * 0.045)})`;
+    ctx.strokeStyle = theme.magic;
+    ctx.globalAlpha = Math.min(0.86, 0.38 + state.selected.length * 0.05);
     ctx.lineWidth = Math.min(25, 14 + state.selected.length * 0.75);
     drawPath(points);
     ctx.stroke();
+    ctx.globalAlpha = 0.78;
     ctx.strokeStyle = "#ffffff";
     ctx.lineWidth = Math.min(8, 4.5 + state.selected.length * 0.2);
     drawPath(points);
     ctx.stroke();
+    if (state.selected.length >= 5) {
+      ctx.fillStyle = theme.light;
+      points.slice(0, -1).forEach((point, i) => { ctx.beginPath(); ctx.arc(point.x, point.y - 4, 2 + (i % 2), 0, Math.PI * 2); ctx.fill(); });
+    }
     ctx.restore();
   }
 
@@ -1595,6 +1714,7 @@
       const pulse = 1 + Math.sin(item.pulse) * 0.08;
       const r = item.radius * pulse;
       const config = ITEM_TYPES[item.kind];
+      const theme = THEMES[settings.theme] || THEMES.garden;
       ctx.save();
       ctx.translate(item.x, item.y);
       ctx.rotate(item.rotation);
@@ -1618,6 +1738,16 @@
       }
       ctx.closePath();
       ctx.fill();
+
+      // Theme-tinted fantasy trinket: a petal, firefly, or star crowns every item.
+      ctx.fillStyle = theme.light;
+      ctx.globalAlpha = 0.78;
+      ctx.beginPath();
+      if (theme.ornament === "petal") ctx.ellipse(r * 0.42, -r * 0.42, r * 0.16, r * 0.07, -0.55, 0, Math.PI * 2);
+      else if (theme.ornament === "firefly") ctx.arc(r * 0.42, -r * 0.42, r * 0.1, 0, Math.PI * 2);
+      else { ctx.moveTo(r * 0.42, -r * 0.59); ctx.lineTo(r * 0.47, -r * 0.37); ctx.lineTo(r * 0.64, -r * 0.31); ctx.lineTo(r * 0.47, -r * 0.25); ctx.closePath(); }
+      ctx.fill();
+      ctx.globalAlpha = 1;
 
       ctx.fillStyle = item.kind === "black" ? "#05040e" : "rgba(39,42,112,0.82)";
       ctx.beginPath();
@@ -1775,10 +1905,14 @@
   closeAbility.addEventListener("click", () => hideOverlay(abilityOverlay));
   howToButton.addEventListener("click", () => showOverlay(howToOverlay));
   closeHowTo.addEventListener("click", () => hideOverlay(howToOverlay));
+  themeButton.addEventListener("click", () => showOverlay(themeOverlay));
+  closeTheme.addEventListener("click", () => hideOverlay(themeOverlay));
+  themeButtons.forEach((button) => button.addEventListener("click", () => selectTheme(button.dataset.theme)));
   titleSettingsButton.addEventListener("click", openSettings);
   settingsButton.addEventListener("click", openSettings);
   resultSettingsButton.addEventListener("click", openSettings);
   pauseSettingsButton.addEventListener("click", openSettings);
+  document.getElementById("settingsThemeButton").addEventListener("click", () => showOverlay(themeOverlay));
   closeSettings.addEventListener("click", () => hideOverlay(settingsOverlay));
   pauseButton.addEventListener("click", pauseGame);
   resumeButton.addEventListener("click", resumeGame);
@@ -1825,6 +1959,11 @@
   sfxSlider.addEventListener("input", () => {
     settings.sfxVolume = Number(sfxSlider.value) / 100;
     audio.setSfxVolume(settings.sfxVolume);
+    saveSettings();
+  });
+  ambientSlider.addEventListener("input", () => {
+    settings.ambientVolume = Number(ambientSlider.value) / 100;
+    audio.setAmbientVolume(settings.ambientVolume);
     saveSettings();
   });
   settingsMute.addEventListener("change", () => {
